@@ -25,7 +25,7 @@ class KamernetScraper:
         """
         self.discord_webhook_url = discord_webhook_url
         self.base_url = "https://kamernet.nl"
-        self.search_url = "https://kamernet.nl/huren/huurwoningen-amsterdam"
+        self.search_url = "https://kamernet.nl/huren/huurwoningen-amsterdam?pageNo=1&radius=5&minSize=0&maxRent=10&searchView=1&sort=1&hasInternet=false&isBathroomPrivate=false&isKitchenPrivate=false&isToiletPrivate=false&suitableForNumberOfPersons=0&isSmokingInsideAllowed=false&isPetsInsideAllowed=false&nwlat=54.216270703936516&nwlng=-3.267085312500001&selat=50.130263513834905&selng=12.5532271875&mapZoom=7&mapMarkerLat=0&mapMarkerLng=0"
         self.session = requests.Session()
         
         # Set a respectful user agent
