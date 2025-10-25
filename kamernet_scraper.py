@@ -642,19 +642,14 @@ def main():
     
     scraper = KamernetScraper(discord_webhook_url)
     
+    # Get check interval from environment variable (default: 15 minutes)
+    interval = int(os.getenv('CHECK_INTERVAL_MINUTES', '15'))
+    
     # Run once to test
     scraper.check_for_new_listings()
     
-    # Ask if user wants to run continuously
-    response = input("\nDo you want to run the scraper continuously? (y/n): ")
-    if response.lower() == 'y':
-        interval = input("Enter check interval in minutes (default: 15): ")
-        try:
-            interval = int(interval) if interval else 15
-        except ValueError:
-            interval = 15
-        
-        scraper.run_continuous(interval)
+    # Run continuously (no user input required for Heroku deployment)
+    scraper.run_continuous(interval)
 
 if __name__ == "__main__":
     main()
