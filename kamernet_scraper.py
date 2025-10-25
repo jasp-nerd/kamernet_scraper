@@ -3,6 +3,18 @@
 Kamernet.nl Ethical Scraper
 Scrapes new listings from Kamernet.nl following robots.txt guidelines
 Sends Discord notifications for new listings
+
+Discord Webhook Limitations (documented for reference):
+- Rate Limit: 30 requests per 60 seconds per webhook (global limit)
+- Per-webhook limit: 5 requests per 2 seconds
+- Max embeds per message: 10 embeds
+- Max embed description: 4096 characters
+- Max embed title: 256 characters
+- Max embed fields: 25 fields per embed
+- Max embed field name: 256 characters
+- Max embed field value: 1024 characters
+- Max total characters per embed: 6000 characters
+- 500 errors typically mean: embed is too large/complex or invalid data
 """
 
 import requests
@@ -11,6 +23,7 @@ import time
 import re
 import hashlib
 import os
+import random
 from datetime import datetime
 from typing import Dict, List, Set, Optional
 from discord_webhook import DiscordWebhook, DiscordEmbed
@@ -22,6 +35,12 @@ class KamernetScraper:
         
         Args:
             discord_webhook_url: Discord webhook URL for notifications
+        
+        Search Details:
+        - Location: Amsterdam + 5km radius (includes surrounding cities)
+        - Sort: Newest listings first (sort=1)
+        - Price: No maximum (maxRent=10 means unlimited)
+        - Filters: No requirements (accepts all property types and amenities)
         """
         self.discord_webhook_url = discord_webhook_url
         self.base_url = "https://kamernet.nl"
@@ -260,7 +279,12 @@ class KamernetScraper:
             return []
     
     def format_listing_for_discord(self, listing: Dict) -> DiscordEmbed:
-        """Format a listing for Discord notification with enhanced content"""
+        """
+        Format a listing for Discord notification with optimized content
+        
+        Note: Kept minimal to avoid Discord 500 errors from oversized embeds.
+        Discord has strict limits: 6000 chars total per embed, 25 fields max.
+        """
         listing_id = listing.get('listingId')
         street = listing.get('street', 'Unknown Street')
         city = listing.get('city', 'Unknown City')
@@ -399,16 +423,17 @@ class KamernetScraper:
         if preferences:
             embed.add_embed_field(name="👥 Preferences", value=" • ".join(preferences), inline=False)
         
-        # Add excerpt from detailed description if available and not too long
+        # Add excerpt from detailed description if available (LIMITED to prevent 500 errors)
+        # Discord embeds can fail with 500 if total content > 6000 chars or field value > 1024
         if detailed_description and len(detailed_description) > 50:
-            # Extract first meaningful sentence or up to 200 chars
-            excerpt = detailed_description[:200]
-            if len(detailed_description) > 200:
+            # Extract first meaningful sentence or up to 150 chars (reduced from 200)
+            excerpt = detailed_description[:150]
+            if len(detailed_description) > 150:
                 # Try to end at a sentence
                 last_period = excerpt.rfind('.')
                 last_exclamation = excerpt.rfind('!')
                 last_sentence = max(last_period, last_exclamation)
-                if last_sentence > 100:  # Only if we have a reasonable sentence
+                if last_sentence > 80:  # Only if we have a reasonable sentence
                     excerpt = excerpt[:last_sentence + 1]
                 else:
                     excerpt += "..."
@@ -450,7 +475,14 @@ class KamernetScraper:
         return embed
     
     def send_discord_notification(self, new_listings: List[Dict]):
-        """Send Discord notification for new listings with proper embed limits"""
+        """
+        Send Discord notification for new listings with proper embed limits
+        
+        Discord Rate Limits:
+        - Global: 30 requests per 60 seconds
+        - Per-webhook: 5 requests per 2 seconds
+        - We use 2-3 second delays between batches to stay safe
+        """
         if not new_listings:
             return
         
@@ -550,9 +582,9 @@ class KamernetScraper:
                     print(f"❌ Webhook status code {response.status_code}{error_text}")
                     print(f"Failed to send Discord notification batch {batch_num + 1}")
                 
-                # Rate limiting between batches
+                # Rate limiting between batches to respect Discord limits (5 req/2sec)
                 if batch_num < total_batches - 1:
-                    time.sleep(2)  # Wait 2 seconds between batches
+                    time.sleep(3)  # Wait 3 seconds between batches (safer than 2)
                     
         except Exception as e:
             print(f"Error sending Discord notification: {e}")
@@ -609,10 +641,19 @@ class KamernetScraper:
         self.save_seen_listings()
         print(f"Total seen listings: {len(self.seen_listings)}")
     
-    def run_continuous(self, interval_minutes: int = 15):
-        """Run the scraper continuously"""
+    def run_continuous(self, interval_seconds_min: int = 50, interval_seconds_max: int = 70):
+        """
+        Run the scraper continuously with randomized intervals
+        
+        Args:
+            interval_seconds_min: Minimum seconds between checks (default: 50)
+            interval_seconds_max: Maximum seconds between checks (default: 70)
+        
+        Note: Random intervals help avoid detection patterns and rate limiting.
+        For Heroku deployment, configure via CHECK_INTERVAL_MIN and CHECK_INTERVAL_MAX env vars.
+        """
         print(f"Starting Kamernet scraper...")
-        print(f"Will check for new listings every {interval_minutes} minutes")
+        print(f"Will check for new listings every {interval_seconds_min}-{interval_seconds_max} seconds (randomized)")
         print(f"Monitoring URL: {self.search_url}")
         print(f"Discord webhook configured: {'Yes' if self.discord_webhook_url else 'No'}")
         print(f"Following robots.txt guidelines - avoiding disallowed paths")
@@ -620,18 +661,29 @@ class KamernetScraper:
         while True:
             try:
                 self.check_for_new_listings()
-                print(f"\nNext check in {interval_minutes} minutes...")
-                time.sleep(interval_minutes * 60)
+                
+                # Randomize interval to avoid patterns
+                wait_seconds = random.randint(interval_seconds_min, interval_seconds_max)
+                print(f"\nNext check in {wait_seconds} seconds...")
+                time.sleep(wait_seconds)
             except KeyboardInterrupt:
                 print("\nScraper stopped by user")
                 break
             except Exception as e:
                 print(f"Error in main loop: {e}")
-                print(f"Retrying in {interval_minutes} minutes...")
-                time.sleep(interval_minutes * 60)
+                wait_seconds = random.randint(interval_seconds_min, interval_seconds_max)
+                print(f"Retrying in {wait_seconds} seconds...")
+                time.sleep(wait_seconds)
 
 def main():
-    """Main function"""
+    """
+    Main function for Heroku deployment
+    
+    Environment Variables:
+    - DISCORD_WEBHOOK_URL: Required - Discord webhook for notifications
+    - CHECK_INTERVAL_MIN: Optional - Minimum seconds between checks (default: 50)
+    - CHECK_INTERVAL_MAX: Optional - Maximum seconds between checks (default: 70)
+    """
     # You need to set your Discord webhook URL here
     discord_webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
     
@@ -642,14 +694,16 @@ def main():
     
     scraper = KamernetScraper(discord_webhook_url)
     
-    # Get check interval from environment variable (default: 15 minutes)
-    interval = int(os.getenv('CHECK_INTERVAL_MINUTES', '15'))
+    # Get randomized check interval from environment variables
+    # Default: 50-70 seconds (fast checking without hammering the server)
+    interval_min = int(os.getenv('CHECK_INTERVAL_MIN', '50'))
+    interval_max = int(os.getenv('CHECK_INTERVAL_MAX', '70'))
     
     # Run once to test
     scraper.check_for_new_listings()
     
-    # Run continuously (no user input required for Heroku deployment)
-    scraper.run_continuous(interval)
+    # Run continuously with randomized intervals (no user input required for Heroku)
+    scraper.run_continuous(interval_min, interval_max)
 
 if __name__ == "__main__":
     main()
