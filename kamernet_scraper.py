@@ -59,6 +59,8 @@ class KamernetScraper:
         })
         
         # File to store seen listings
+        # WARNING: On Heroku, this file will be lost on dyno restart (every ~24h)
+        # Consider using PostgreSQL addon or S3 for persistent storage in production
         self.seen_listings_file = "seen_listings.json"
         self.seen_listings: Set[int] = self.load_seen_listings()
         
@@ -333,21 +335,22 @@ class KamernetScraper:
         else:
             embed_title = f"{title_emoji} {type_text}: {street}, {city}"
         
-        # Enhanced description with key details and timing
+        # Enhanced description with key details (removed time_posted - Discord timestamp is more accurate)
         description_parts = [f"**€{price}/month** • **{surface_area}m²**"]
         if furnishing_text != "Unknown":
             description_parts.append(f"• {furnishing_text}")
-        if time_posted:
-            description_parts.append(f"• ⏰ {time_posted}")
         
-        # Create embed with dynamic color based on price and timing
-        color = 0x00ff00 if is_new else 0xff6b35 if is_top_ad else 0x0099ff
-        if time_posted and ("uur" in time_posted or "minuten" in time_posted or "Net" in time_posted):
-            color = 0xff6b35  # Orange for very fresh listings
-        if price > 2000:
+        # Create embed with dynamic color based on price and listing status
+        if is_new:
+            color = 0xff6b35  # Orange for new listings
+        elif is_top_ad:
+            color = 0xffd700  # Gold for featured listings
+        elif price > 2000:
             color = 0xff4444  # Red for expensive
         elif price < 800:
             color = 0x44ff44  # Green for cheap
+        else:
+            color = 0x0099ff  # Blue for normal listings
         
         embed = DiscordEmbed(
             title=embed_title,
@@ -439,14 +442,12 @@ class KamernetScraper:
                     excerpt += "..."
             embed.add_embed_field(name="📝 Description", value=excerpt, inline=False)
         
-        # Add special badges with emojis
+        # Add special badges with emojis (removed time-based badge - Discord shows timestamp)
         badges = []
         if is_new:
             badges.append("🆕 **NEW**")
         if is_top_ad:
             badges.append("⭐ **FEATURED**")
-        if time_posted and ("Net" in time_posted or "0 uur" in time_posted):
-            badges.append("🔥 **JUST POSTED**")
         
         if badges:
             embed.add_embed_field(name="🏷️ Special", value=" • ".join(badges), inline=False)
@@ -461,15 +462,14 @@ class KamernetScraper:
         if image_url:
             embed.set_image(url=image_url)
         
-        # Enhanced footer with more info
+        # Footer with listing ID (Discord timestamp is automatic and accurate)
         footer_text = f"ID: {listing_id} • Kamernet.nl • Click title for full details"
-        if time_posted:
-            footer_text = f"Posted {time_posted} • " + footer_text
         
         embed.set_footer(
             text=footer_text,
             icon_url="https://kamernet.nl/favicon.ico"
         )
+        # Discord automatically shows accurate timestamp like "Today at 09:32"
         embed.set_timestamp()
         
         return embed
@@ -511,12 +511,15 @@ class KamernetScraper:
                     new_count = sum(1 for l in new_listings if l.get('isNewAdvert', False))
                     top_ad_count = sum(1 for l in new_listings if l.get('isTopAdvert', False))
                     
-                    # Create summary with statistics
-                    summary_parts = [f"**{len(new_listings)} new listings** found in Amsterdam!"]
+                    # Create summary with statistics (proper singular/plural)
+                    listing_word = "listing" if len(new_listings) == 1 else "listings"
+                    summary_parts = [f"**{len(new_listings)} new {listing_word}** found in Amsterdam!"]
                     if new_count > 0:
-                        summary_parts.append(f"🆕 {new_count} brand new")
+                        new_word = "listing" if new_count == 1 else "listings"
+                        summary_parts.append(f"🆕 {new_count} brand new {new_word}")
                     if top_ad_count > 0:
-                        summary_parts.append(f"⭐ {top_ad_count} featured")
+                        featured_word = "listing" if top_ad_count == 1 else "listings"
+                        summary_parts.append(f"⭐ {top_ad_count} featured {featured_word}")
                     
                     # Price range
                     prices = [l.get('totalRentalPrice', 0) for l in new_listings if l.get('totalRentalPrice', 0) > 0]
