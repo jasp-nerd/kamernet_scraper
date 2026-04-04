@@ -28,14 +28,22 @@ from datetime import datetime
 from typing import Dict, List, Set, Optional
 from discord_webhook import DiscordWebhook, DiscordEmbed
 
+try:
+    import psycopg2
+    import psycopg2.extras
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
+
 class KamernetScraper:
-    def __init__(self, discord_webhook_url: str):
+    def __init__(self, discord_webhook_url: str, database_url: str = None):
         """
         Initialize the Kamernet scraper
-        
+
         Args:
             discord_webhook_url: Discord webhook URL for notifications
-        
+            database_url: Optional Postgres connection string (Neon/Vercel Postgres)
+
         Search Details:
         - Location: Amsterdam + 5km radius (includes surrounding cities)
         - Sort: Newest listings first (sort=1)
@@ -43,6 +51,10 @@ class KamernetScraper:
         - Filters: No requirements (accepts all property types and amenities)
         """
         self.discord_webhook_url = discord_webhook_url
+        self.database_url = database_url or os.getenv('DATABASE_URL')
+        self.db_conn = None
+        if self.database_url and HAS_PSYCOPG2:
+            self._connect_db()
         self.base_url = "https://kamernet.nl"
         self.search_url = "https://kamernet.nl/huren/huurwoningen-amsterdam?pageNo=1&radius=5&minSize=0&maxRent=10&searchView=1&sort=1&hasInternet=false&isBathroomPrivate=false&isKitchenPrivate=false&isToiletPrivate=false&suitableForNumberOfPersons=0&isSmokingInsideAllowed=false&isPetsInsideAllowed=false&nwlat=54.216270703936516&nwlng=-3.267085312500001&selat=50.130263513834905&selng=12.5532271875&mapZoom=7&mapMarkerLat=0&mapMarkerLng=0"
         self.session = requests.Session()
@@ -89,7 +101,13 @@ class KamernetScraper:
         }
         
     def load_seen_listings(self) -> Set[int]:
-        """Load previously seen listing IDs from file"""
+        """Load previously seen listing IDs from DB (preferred) or JSON file (fallback)"""
+        # Try database first
+        db_listings = self._load_seen_listings_from_db()
+        if db_listings:
+            print(f"Loaded {len(db_listings)} seen listings from database")
+            return db_listings
+        # Fallback to JSON file
         if os.path.exists(self.seen_listings_file):
             try:
                 with open(self.seen_listings_file, 'r') as f:
@@ -112,6 +130,210 @@ class KamernetScraper:
         except Exception as e:
             print(f"Error saving seen listings: {e}")
     
+    # ── Database methods ──────────────────────────────────────────────
+
+    def _connect_db(self):
+        """Connect to Neon Postgres. Reconnects if connection is closed."""
+        if not self.database_url or not HAS_PSYCOPG2:
+            return
+        try:
+            if self.db_conn and not self.db_conn.closed:
+                return
+            self.db_conn = psycopg2.connect(
+                self.database_url,
+                sslmode='require',
+                connect_timeout=10
+            )
+            self.db_conn.autocommit = True
+            print("✅ Connected to Postgres")
+        except Exception as e:
+            print(f"⚠️  DB connection error: {e}")
+            self.db_conn = None
+
+    def _ensure_db(self) -> bool:
+        """Ensure DB connection is alive. Returns True if connected."""
+        if not self.database_url or not HAS_PSYCOPG2:
+            return False
+        self._connect_db()
+        return self.db_conn is not None and not self.db_conn.closed
+
+    def _load_seen_listings_from_db(self) -> Set[int]:
+        """Load seen listing IDs from Postgres."""
+        if not self._ensure_db():
+            return set()
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute("SELECT listing_id FROM listings")
+            return {row[0] for row in cur.fetchall()}
+        except Exception as e:
+            print(f"⚠️  DB load seen listings error: {e}")
+            return set()
+
+    def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
+        """Parse ISO date string to a format Postgres accepts."""
+        if not date_str:
+            return None
+        try:
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00')).isoformat()
+        except Exception:
+            return None
+
+    def _parse_date_only(self, date_str: Optional[str]) -> Optional[str]:
+        """Parse ISO date string to DATE (no time)."""
+        if not date_str:
+            return None
+        try:
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00')).strftime('%Y-%m-%d')
+        except Exception:
+            return None
+
+    def _listing_to_params(self, listing: Dict) -> Dict:
+        """Map scraped listing dict to SQL parameter dict."""
+        return {
+            'listing_id': listing.get('listingId'),
+            'street': listing.get('street'),
+            'city': listing.get('city'),
+            'city_slug': listing.get('citySlug'),
+            'street_slug': listing.get('streetSlug'),
+            'postal_code': listing.get('postal_code'),
+            'house_number': listing.get('house_number'),
+            'house_number_addition': listing.get('house_number_addition'),
+            'listing_type': listing.get('listingType'),
+            'furnishing_id': listing.get('furnishingId'),
+            'total_rental_price': listing.get('totalRentalPrice'),
+            'surface_area': listing.get('surfaceArea'),
+            'deposit': listing.get('deposit'),
+            'utilities_included': listing.get('utilitiesIncluded'),
+            'num_bedrooms': listing.get('num_bedrooms'),
+            'num_rooms': listing.get('num_rooms'),
+            'energy_label_id': listing.get('energy_label_id'),
+            'pets_allowed': listing.get('pets_allowed'),
+            'smoking_allowed': listing.get('smoking_allowed'),
+            'registration_allowed': listing.get('registration_allowed'),
+            'min_age': listing.get('min_age'),
+            'max_age': listing.get('max_age'),
+            'suitable_for_persons': listing.get('suitable_for_persons'),
+            'availability_start': self._parse_date_only(listing.get('availabilityStartDate')),
+            'availability_end': self._parse_date_only(listing.get('availabilityEndDate')),
+            'detailed_title': listing.get('detailed_title'),
+            'detailed_description': listing.get('detailed_description'),
+            'thumbnail_url': listing.get('thumbnailUrl'),
+            'full_preview_image_url': listing.get('resizedFullPreviewImageUrl') or listing.get('fullPreviewImageUrl'),
+            'additional_images': json.dumps(listing.get('additional_images', [])),
+            'landlord_name': listing.get('landlord_name'),
+            'landlord_verified': listing.get('landlord_verified', False),
+            'landlord_response_rate': listing.get('landlord_response_rate'),
+            'landlord_response_time': listing.get('landlord_response_time'),
+            'landlord_member_since': self._parse_date(listing.get('landlord_member_since')),
+            'landlord_last_seen': self._parse_date(listing.get('landlord_last_seen')),
+            'landlord_active_listings': listing.get('landlord_active_listings'),
+            'create_date': self._parse_date(listing.get('create_date') or listing.get('createDate')),
+            'publish_date': self._parse_date(listing.get('publish_date') or listing.get('publishDate')),
+            'is_new_advert': listing.get('isNewAdvert', False),
+            'is_top_advert': listing.get('isTopAdvert', False),
+        }
+
+    def _upsert_listing(self, listing: Dict):
+        """Upsert a listing into Postgres."""
+        if not self._ensure_db():
+            return
+        try:
+            params = self._listing_to_params(listing)
+            cur = self.db_conn.cursor()
+            cur.execute("""
+                INSERT INTO listings (
+                    listing_id, street, city, city_slug, street_slug,
+                    postal_code, house_number, house_number_addition,
+                    listing_type, furnishing_id,
+                    total_rental_price, surface_area, deposit, utilities_included,
+                    num_bedrooms, num_rooms, energy_label_id,
+                    pets_allowed, smoking_allowed, registration_allowed,
+                    min_age, max_age, suitable_for_persons,
+                    availability_start, availability_end,
+                    detailed_title, detailed_description,
+                    thumbnail_url, full_preview_image_url, additional_images,
+                    landlord_name, landlord_verified, landlord_response_rate,
+                    landlord_response_time, landlord_member_since, landlord_last_seen,
+                    landlord_active_listings,
+                    create_date, publish_date,
+                    is_new_advert, is_top_advert,
+                    first_seen_at, last_seen_at
+                ) VALUES (
+                    %(listing_id)s, %(street)s, %(city)s, %(city_slug)s, %(street_slug)s,
+                    %(postal_code)s, %(house_number)s, %(house_number_addition)s,
+                    %(listing_type)s, %(furnishing_id)s,
+                    %(total_rental_price)s, %(surface_area)s, %(deposit)s, %(utilities_included)s,
+                    %(num_bedrooms)s, %(num_rooms)s, %(energy_label_id)s,
+                    %(pets_allowed)s, %(smoking_allowed)s, %(registration_allowed)s,
+                    %(min_age)s, %(max_age)s, %(suitable_for_persons)s,
+                    %(availability_start)s, %(availability_end)s,
+                    %(detailed_title)s, %(detailed_description)s,
+                    %(thumbnail_url)s, %(full_preview_image_url)s, %(additional_images)s,
+                    %(landlord_name)s, %(landlord_verified)s, %(landlord_response_rate)s,
+                    %(landlord_response_time)s, %(landlord_member_since)s, %(landlord_last_seen)s,
+                    %(landlord_active_listings)s,
+                    %(create_date)s, %(publish_date)s,
+                    %(is_new_advert)s, %(is_top_advert)s,
+                    NOW(), NOW()
+                )
+                ON CONFLICT (listing_id) DO UPDATE SET
+                    total_rental_price = EXCLUDED.total_rental_price,
+                    surface_area = EXCLUDED.surface_area,
+                    last_seen_at = NOW(),
+                    disappeared_at = NULL,
+                    updated_at = NOW(),
+                    is_new_advert = EXCLUDED.is_new_advert,
+                    is_top_advert = EXCLUDED.is_top_advert
+            """, params)
+        except Exception as e:
+            print(f"⚠️  DB upsert error for {listing.get('listingId')}: {e}")
+
+    def _touch_listings(self, listing_ids: List[int]):
+        """Update last_seen_at for all listings found in this cycle."""
+        if not self._ensure_db() or not listing_ids:
+            return
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute("""
+                UPDATE listings
+                SET last_seen_at = NOW(), disappeared_at = NULL
+                WHERE listing_id = ANY(%s)
+            """, (listing_ids,))
+        except Exception as e:
+            print(f"⚠️  DB touch error: {e}")
+
+    def _mark_disappeared(self):
+        """Mark listings as disappeared if not seen for 30+ minutes."""
+        if not self._ensure_db():
+            return
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute("""
+                UPDATE listings
+                SET disappeared_at = NOW()
+                WHERE disappeared_at IS NULL
+                  AND last_seen_at < NOW() - INTERVAL '30 minutes'
+            """)
+            if cur.rowcount > 0:
+                print(f"📤 Marked {cur.rowcount} listings as disappeared")
+        except Exception as e:
+            print(f"⚠️  DB mark disappeared error: {e}")
+
+    def _log_scrape_run(self, total_found: int, new_found: int, error: str = None):
+        """Log a scrape run for observability."""
+        if not self._ensure_db():
+            return
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute("""
+                INSERT INTO scrape_runs (started_at, finished_at, total_found, new_found, errors)
+                VALUES (NOW(), NOW(), %s, %s, %s)
+            """, (total_found, new_found, error))
+        except Exception as e:
+            print(f"⚠️  DB log scrape run error: {e}")
+
+    # ── End database methods ─────────────────────────────────────────
+
     def extract_listings_from_html(self, html_content: str) -> List[Dict]:
         """Extract listings data from the HTML content"""
         try:
@@ -599,13 +821,18 @@ class KamernetScraper:
         print(f"\n{'='*50}")
         print(f"Checking for new listings at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*50}")
-        
+
         listings = self.fetch_listings()
-        
+
         if not listings:
             print("No listings found or error occurred")
+            self._log_scrape_run(0, 0, "No listings found")
             return
-        
+
+        # Touch all listings in DB (mark as still active)
+        all_ids = [l.get('listingId') for l in listings if l.get('listingId')]
+        self._touch_listings(all_ids)
+
         # Find new listings
         new_listings = []
         for listing in listings:
@@ -613,10 +840,10 @@ class KamernetScraper:
             if listing_id and listing_id not in self.seen_listings:
                 new_listings.append(listing)
                 self.seen_listings.add(listing_id)
-        
+
         print(f"Total listings found: {len(listings)}")
         print(f"New listings: {len(new_listings)}")
-        
+
         if new_listings:
             print("\nNew listings found:")
             for listing in new_listings:
@@ -625,22 +852,30 @@ class KamernetScraper:
                 price = listing.get('totalRentalPrice', 0)
                 listing_id = listing.get('listingId')
                 print(f"  - {street}, {city} - €{price}/month (ID: {listing_id})")
-            
+
             # Fetch detailed information for new listings only
             print(f"\n🔍 Fetching detailed information for {len(new_listings)} new listings...")
             enhanced_listings = []
             for listing in new_listings:
                 enhanced_listing = self.fetch_listing_details(listing)
                 enhanced_listings.append(enhanced_listing)
-            
+
             print(f"✅ Enhanced {len(enhanced_listings)} listings with detailed information")
-            
+
+            # Write to database
+            for listing in enhanced_listings:
+                self._upsert_listing(listing)
+
             # Send Discord notification with enhanced data
             self.send_discord_notification(enhanced_listings)
         else:
             print("No new listings found")
-        
-        # Save seen listings
+
+        # Mark disappeared listings and log scrape run
+        self._mark_disappeared()
+        self._log_scrape_run(len(listings), len(new_listings))
+
+        # Save seen listings (JSON fallback)
         self.save_seen_listings()
         print(f"Total seen listings: {len(self.seen_listings)}")
     
@@ -659,6 +894,7 @@ class KamernetScraper:
         print(f"Will check for new listings every {interval_seconds_min}-{interval_seconds_max} seconds (randomized)")
         print(f"Monitoring URL: {self.search_url}")
         print(f"Discord webhook configured: {'Yes' if self.discord_webhook_url else 'No'}")
+        print(f"Database configured: {'Yes' if self.database_url else 'No'}")
         print(f"Following robots.txt guidelines - avoiding disallowed paths")
         
         while True:

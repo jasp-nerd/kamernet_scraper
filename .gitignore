@@ -20,3 +20,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Dashboard
+dashboard/.env.local
+dashboard/.env
+dashboard/.vercel/
+dashboard/node_modules/
