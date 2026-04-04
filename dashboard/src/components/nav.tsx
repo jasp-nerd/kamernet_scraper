@@ -27,7 +27,7 @@ export function Nav() {
                 href={link.href}
                 className={cn(
                   "px-3 py-2 text-sm rounded-md transition-colors",
-                  pathname === link.href
+                  (link.href === "/" ? pathname === "/" : pathname.startsWith(link.href))
                     ? "bg-accent text-accent-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 )}

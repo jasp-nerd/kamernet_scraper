@@ -21,7 +21,6 @@ import requests
 import json
 import time
 import re
-import hashlib
 import os
 import random
 from datetime import datetime
@@ -453,26 +452,6 @@ class KamernetScraper:
             details['create_date'] = listing_details.get('createDate')
             details['publish_date'] = listing_details.get('publishDate')
             
-            # Calculate time since posted
-            if details.get('publish_date'):
-                try:
-                    publish_dt = datetime.fromisoformat(details['publish_date'].replace('Z', '+00:00'))
-                    now = datetime.now(publish_dt.tzinfo)
-                    time_diff = now - publish_dt
-                    
-                    if time_diff.days > 0:
-                        details['time_posted'] = f"{time_diff.days} dagen geleden"
-                    elif time_diff.seconds > 3600:
-                        hours = time_diff.seconds // 3600
-                        details['time_posted'] = f"{hours} uur geleden"
-                    elif time_diff.seconds > 60:
-                        minutes = time_diff.seconds // 60
-                        details['time_posted'] = f"{minutes} minuten geleden"
-                    else:
-                        details['time_posted'] = "Net geplaatst"
-                except:
-                    pass
-            
             # Additional images
             image_list = listing_details.get('imageList', [])
             if image_list:
@@ -502,91 +481,122 @@ class KamernetScraper:
             print(f"Error fetching listings: {e}")
             return []
     
-    def format_listing_for_discord(self, listing: Dict) -> DiscordEmbed:
-        """
-        Format a listing for Discord notification with optimized content
-        
-        Note: Kept minimal to avoid Discord 500 errors from oversized embeds.
-        Discord has strict limits: 6000 chars total per embed, 25 fields max.
-        """
-        listing_id = listing.get('listingId')
-        street = listing.get('street', 'Unknown Street')
-        city = listing.get('city', 'Unknown City')
+    # Maps used for Discord formatting (also used in dashboard/src/lib/utils.ts)
+    TYPE_MAP = {1: "Room", 2: "Apartment", 3: "Studio", 4: "Studio"}
+    FURNISHING_MAP = {1: "Unfurnished", 2: "Unfurnished", 3: "Semi-furnished", 4: "Furnished"}
+
+    def _embed_color(self, listing: Dict) -> int:
+        """Determine embed color based on listing status and price."""
         price = listing.get('totalRentalPrice', 0)
-        surface_area = listing.get('surfaceArea', 0)
+        if listing.get('isNewAdvert', False):
+            return 0xff6b35  # Orange for new
+        if listing.get('isTopAdvert', False):
+            return 0xffd700  # Gold for featured
+        if price > 2000:
+            return 0xff4444  # Red for expensive
+        if price < 800:
+            return 0x44ff44  # Green for cheap
+        return 0x0099ff  # Blue for normal
+
+    def _embed_title(self, listing: Dict) -> str:
+        """Build the embed title line."""
+        listing_type = listing.get('listingType', 0)
+        title_emoji = "🏠" if listing_type == 1 else "🏢" if listing_type == 2 else "🏡"
+        detailed_title = listing.get('detailed_title', '')
+        if detailed_title and len(detailed_title) < 100:
+            return f"{title_emoji} {detailed_title}"
+        type_text = self.TYPE_MAP.get(listing_type, "Property")
+        return f"{title_emoji} {type_text}: {listing.get('street', 'Unknown')}, {listing.get('city', 'Unknown')}"
+
+    def _add_availability_fields(self, embed: DiscordEmbed, listing: Dict):
+        """Add availability start/end fields to embed."""
         availability_start = listing.get('availabilityStartDate', '')
         availability_end = listing.get('availabilityEndDate')
-        utilities_included = listing.get('utilitiesIncluded', False)
-        is_new = listing.get('isNewAdvert', False)
-        is_top_ad = listing.get('isTopAdvert', False)
+
+        if availability_start:
+            try:
+                start_date = datetime.fromisoformat(availability_start.replace('Z', '+00:00'))
+                embed.add_embed_field(name="📅 Available", value=f"From {start_date.strftime('%b %d, %Y')}", inline=True)
+            except (ValueError, TypeError):
+                embed.add_embed_field(name="📅 Available", value=f"From {availability_start[:10]}", inline=True)
+
+        if availability_end:
+            try:
+                end_date = datetime.fromisoformat(availability_end.replace('Z', '+00:00'))
+                embed.add_embed_field(name="📅 Until", value=end_date.strftime("%b %d, %Y"), inline=True)
+            except (ValueError, TypeError):
+                embed.add_embed_field(name="📅 Until", value=availability_end[:10], inline=True)
+        else:
+            embed.add_embed_field(name="⏰ Duration", value="Long-term", inline=True)
+
+    def _add_detail_fields(self, embed: DiscordEmbed, listing: Dict):
+        """Add landlord, preferences, and description excerpt fields."""
+        landlord_name = listing.get('landlord_name')
+        if landlord_name:
+            parts = [f"👤 {landlord_name}"]
+            if listing.get('landlord_verified', False):
+                parts.append("✅")
+            rate = listing.get('landlord_response_rate')
+            if rate is not None:
+                parts.append(f"({rate}% response)")
+            embed.add_embed_field(name="🏠 Landlord", value=" ".join(parts), inline=False)
+
+        # Tenant preferences
+        preferences = []
+        min_age, max_age = listing.get('min_age'), listing.get('max_age')
+        if min_age and max_age:
+            preferences.append(f"Age: {min_age}-{max_age}" if min_age != max_age else f"Age: {min_age}")
+        if listing.get('pets_allowed') is not None:
+            preferences.append("🐕 Pets OK" if listing['pets_allowed'] else "🚫 No pets")
+        if listing.get('smoking_allowed') is not None:
+            preferences.append("🚬 Smoking OK" if listing['smoking_allowed'] else "🚭 No smoking")
+        if preferences:
+            embed.add_embed_field(name="👥 Preferences", value=" • ".join(preferences), inline=False)
+
+        # Description excerpt (limited to prevent Discord 500 errors)
+        desc = listing.get('detailed_description', '')
+        if desc and len(desc) > 50:
+            excerpt = desc[:150]
+            if len(desc) > 150:
+                last_sentence = max(excerpt.rfind('.'), excerpt.rfind('!'))
+                excerpt = excerpt[:last_sentence + 1] if last_sentence > 80 else excerpt + "..."
+            embed.add_embed_field(name="📝 Description", value=excerpt, inline=False)
+
+    def format_listing_for_discord(self, listing: Dict) -> DiscordEmbed:
+        """Format a listing as a Discord embed. Kept compact to avoid 500 errors."""
+        listing_id = listing.get('listingId')
+        price = listing.get('totalRentalPrice', 0)
+        surface_area = listing.get('surfaceArea', 0)
         listing_type = listing.get('listingType', 0)
         furnishing_id = listing.get('furnishingId', 0)
-        
-        # Get detailed information if available
-        detailed_title = listing.get('detailed_title', '')
-        detailed_description = listing.get('detailed_description', '')
-        deposit = listing.get('deposit')
-        time_posted = listing.get('time_posted')
-        num_bedrooms = listing.get('num_bedrooms')
-        num_rooms = listing.get('num_rooms')
-        landlord_name = listing.get('landlord_name')
-        landlord_verified = listing.get('landlord_verified', False)
-        landlord_response_rate = listing.get('landlord_response_rate')
-        min_age = listing.get('min_age')
-        max_age = listing.get('max_age')
-        pets_allowed = listing.get('pets_allowed')
-        smoking_allowed = listing.get('smoking_allowed')
-        
-        # Determine listing type text
-        type_map = {1: "Room", 2: "Apartment", 3: "Studio", 4: "Studio"}
-        type_text = type_map.get(listing_type, "Property")
-        
-        # Determine furnishing text
-        furnishing_map = {1: "Unfurnished", 2: "Unfurnished", 3: "Semi-furnished", 4: "Furnished"}
-        furnishing_text = furnishing_map.get(furnishing_id, "Unknown")
-        
-        # Create listing URL
-        city_slug = listing.get('citySlug', city.lower())
-        street_slug = listing.get('streetSlug', street.lower().replace(' ', '-'))
+        type_text = self.TYPE_MAP.get(listing_type, "Property")
+        furnishing_text = self.FURNISHING_MAP.get(furnishing_id, "Unknown")
+
+        # Build listing URL
+        city_slug = listing.get('citySlug', listing.get('city', '').lower())
+        street_slug = listing.get('streetSlug', listing.get('street', '').lower().replace(' ', '-'))
         listing_url = f"{self.base_url}/huren/{city_slug}/{street_slug}/{listing_id}"
-        
-        # Enhanced title with property type and detailed title if available
-        title_emoji = "🏠" if listing_type == 1 else "🏢" if listing_type == 2 else "🏡"
-        if detailed_title and len(detailed_title) < 100:
-            embed_title = f"{title_emoji} {detailed_title}"
-        else:
-            embed_title = f"{title_emoji} {type_text}: {street}, {city}"
-        
-        # Enhanced description with key details (removed time_posted - Discord timestamp is more accurate)
-        description_parts = [f"**€{price}/month** • **{surface_area}m²**"]
+
+        # Description line
+        desc_parts = [f"**€{price}/month** • **{surface_area}m²**"]
         if furnishing_text != "Unknown":
-            description_parts.append(f"• {furnishing_text}")
-        
-        # Create embed with dynamic color based on price and listing status
-        if is_new:
-            color = 0xff6b35  # Orange for new listings
-        elif is_top_ad:
-            color = 0xffd700  # Gold for featured listings
-        elif price > 2000:
-            color = 0xff4444  # Red for expensive
-        elif price < 800:
-            color = 0x44ff44  # Green for cheap
-        else:
-            color = 0x0099ff  # Blue for normal listings
-        
+            desc_parts.append(f"• {furnishing_text}")
+
         embed = DiscordEmbed(
-            title=embed_title,
-            description=" ".join(description_parts),
+            title=self._embed_title(listing),
+            description=" ".join(desc_parts),
             url=listing_url,
-            color=color
+            color=self._embed_color(listing),
         )
-        
-        # Add essential fields in a compact layout
+
+        # Core fields
         embed.add_embed_field(name="💰 Rent", value=f"€{price}/month", inline=True)
         embed.add_embed_field(name="📐 Size", value=f"{surface_area}m²", inline=True)
         embed.add_embed_field(name="🏠 Type", value=type_text, inline=True)
-        
-        # Add room/bedroom info if available
+
+        # Rooms
+        num_bedrooms = listing.get('num_bedrooms')
+        num_rooms = listing.get('num_rooms')
         if num_bedrooms or num_rooms:
             room_info = []
             if num_bedrooms:
@@ -595,226 +605,121 @@ class KamernetScraper:
                 room_info.append(f"{num_rooms} rooms")
             if room_info:
                 embed.add_embed_field(name="🛏️ Rooms", value=" • ".join(room_info), inline=True)
-        
-        # Deposit information if available
-        if deposit:
-            embed.add_embed_field(name="💳 Deposit", value=f"€{deposit}", inline=True)
-        
-        # Availability information
-        if availability_start:
-            try:
-                start_date = datetime.fromisoformat(availability_start.replace('Z', '+00:00'))
-                date_str = start_date.strftime("%b %d, %Y")
-                embed.add_embed_field(name="📅 Available", value=f"From {date_str}", inline=True)
-            except:
-                embed.add_embed_field(name="📅 Available", value=f"From {availability_start[:10]}", inline=True)
-        
-        # Duration if end date exists
-        if availability_end:
-            try:
-                end_date = datetime.fromisoformat(availability_end.replace('Z', '+00:00'))
-                end_str = end_date.strftime("%b %d, %Y")
-                embed.add_embed_field(name="📅 Until", value=end_str, inline=True)
-            except:
-                embed.add_embed_field(name="📅 Until", value=availability_end[:10], inline=True)
-        else:
-            embed.add_embed_field(name="⏰ Duration", value="Long-term", inline=True)
-        
-        # Utilities
-        utilities_text = "✅ Included" if utilities_included else "❌ Extra cost"
+
+        if listing.get('deposit'):
+            embed.add_embed_field(name="💳 Deposit", value=f"€{listing['deposit']}", inline=True)
+
+        self._add_availability_fields(embed, listing)
+
+        utilities_text = "✅ Included" if listing.get('utilitiesIncluded', False) else "❌ Extra cost"
         embed.add_embed_field(name="⚡ Utilities", value=utilities_text, inline=True)
-        
-        # Landlord information if available
-        if landlord_name:
-            landlord_text = f"👤 {landlord_name}"
-            if landlord_verified:
-                landlord_text += " ✅"
-            if landlord_response_rate is not None:
-                landlord_text += f" ({landlord_response_rate}% response)"
-            embed.add_embed_field(name="🏠 Landlord", value=landlord_text, inline=False)
-        
-        # Tenant preferences if available
-        preferences = []
-        if min_age and max_age:
-            if min_age == max_age:
-                preferences.append(f"Age: {min_age}")
-            else:
-                preferences.append(f"Age: {min_age}-{max_age}")
-        if pets_allowed is not None:
-            preferences.append("🐕 Pets OK" if pets_allowed else "🚫 No pets")
-        if smoking_allowed is not None:
-            preferences.append("🚬 Smoking OK" if smoking_allowed else "🚭 No smoking")
-        
-        if preferences:
-            embed.add_embed_field(name="👥 Preferences", value=" • ".join(preferences), inline=False)
-        
-        # Add excerpt from detailed description if available (LIMITED to prevent 500 errors)
-        # Discord embeds can fail with 500 if total content > 6000 chars or field value > 1024
-        if detailed_description and len(detailed_description) > 50:
-            # Extract first meaningful sentence or up to 150 chars (reduced from 200)
-            excerpt = detailed_description[:150]
-            if len(detailed_description) > 150:
-                # Try to end at a sentence
-                last_period = excerpt.rfind('.')
-                last_exclamation = excerpt.rfind('!')
-                last_sentence = max(last_period, last_exclamation)
-                if last_sentence > 80:  # Only if we have a reasonable sentence
-                    excerpt = excerpt[:last_sentence + 1]
-                else:
-                    excerpt += "..."
-            embed.add_embed_field(name="📝 Description", value=excerpt, inline=False)
-        
-        # Add special badges with emojis (removed time-based badge - Discord shows timestamp)
+
+        self._add_detail_fields(embed, listing)
+
+        # Badges
         badges = []
-        if is_new:
+        if listing.get('isNewAdvert', False):
             badges.append("🆕 **NEW**")
-        if is_top_ad:
+        if listing.get('isTopAdvert', False):
             badges.append("⭐ **FEATURED**")
-        
         if badges:
             embed.add_embed_field(name="🏷️ Special", value=" • ".join(badges), inline=False)
-        
-        # Add thumbnail (smaller image in top right)
-        thumbnail_url = listing.get('thumbnailUrl')
-        if thumbnail_url:
-            embed.set_thumbnail(url=thumbnail_url)
-        
-        # Add main image
+
+        # Images
+        if listing.get('thumbnailUrl'):
+            embed.set_thumbnail(url=listing['thumbnailUrl'])
         image_url = listing.get('resizedFullPreviewImageUrl') or listing.get('fullPreviewImageUrl')
         if image_url:
             embed.set_image(url=image_url)
-        
-        # Footer with listing ID (Discord timestamp is automatic and accurate)
-        footer_text = f"ID: {listing_id} • Kamernet.nl • Click title for full details"
-        
+
         embed.set_footer(
-            text=footer_text,
-            icon_url="https://kamernet.nl/favicon.ico"
+            text=f"ID: {listing_id} • Kamernet.nl • Click title for full details",
+            icon_url="https://kamernet.nl/favicon.ico",
         )
-        # Discord automatically shows accurate timestamp like "Today at 09:32"
         embed.set_timestamp()
-        
+
         return embed
     
+    def _build_summary_header(self, listings: List[Dict], total_batches: int) -> DiscordEmbed:
+        """Build the summary header embed for the first Discord batch."""
+        new_count = sum(1 for l in listings if l.get('isNewAdvert', False))
+        top_count = sum(1 for l in listings if l.get('isTopAdvert', False))
+        n = len(listings)
+        s = "listing" if n == 1 else "listings"
+
+        parts = [f"**{n} new {s}** found in Amsterdam!"]
+        if new_count > 0:
+            parts.append(f"🆕 {new_count} brand new {'listing' if new_count == 1 else 'listings'}")
+        if top_count > 0:
+            parts.append(f"⭐ {top_count} featured {'listing' if top_count == 1 else 'listings'}")
+
+        prices = [l.get('totalRentalPrice', 0) for l in listings if l.get('totalRentalPrice', 0) > 0]
+        if prices:
+            parts.append(f"💰 €{min(prices)}-€{max(prices)}/month")
+
+        header = DiscordEmbed(title="🔔 Kamernet Listings Alert", description="\n".join(parts), color=0xff6b35)
+        footer = "Kamernet Scraper • Respecting robots.txt • Click listings for details"
+        if total_batches > 1:
+            footer += f" • Batch 1 of {total_batches}"
+        header.set_footer(text=footer, icon_url="https://kamernet.nl/favicon.ico")
+        header.set_timestamp()
+        return header
+
     def send_discord_notification(self, new_listings: List[Dict]):
-        """
-        Send Discord notification for new listings with proper embed limits
-        
-        Discord Rate Limits:
-        - Global: 30 requests per 60 seconds
-        - Per-webhook: 5 requests per 2 seconds
-        - We use 2-3 second delays between batches to stay safe
-        """
+        """Send Discord notification for new listings in batches of 10 embeds."""
         if not new_listings:
             return
-        
+
         try:
-            # Sort listings by importance (new listings first, then by price)
             sorted_listings = sorted(new_listings, key=lambda x: (
-                not x.get('isNewAdvert', False),  # New listings first
-                not x.get('isTopAdvert', False),  # Then top ads
-                x.get('totalRentalPrice', 0)      # Then by price (ascending)
+                not x.get('isNewAdvert', False),
+                not x.get('isTopAdvert', False),
+                x.get('totalRentalPrice', 0),
             ))
-            
-            # Send listings in batches of 10 (Discord's embed limit)
+
             batch_size = 10
             total_batches = (len(sorted_listings) + batch_size - 1) // batch_size
-            
+
             for batch_num in range(total_batches):
                 start_idx = batch_num * batch_size
                 end_idx = min(start_idx + batch_size, len(sorted_listings))
                 batch_listings = sorted_listings[start_idx:end_idx]
-                
+
                 webhook = DiscordWebhook(url=self.discord_webhook_url)
-                
-                # Add a header embed for the first batch only
+
                 if batch_num == 0:
-                    # Count different types
-                    new_count = sum(1 for l in new_listings if l.get('isNewAdvert', False))
-                    top_ad_count = sum(1 for l in new_listings if l.get('isTopAdvert', False))
-                    
-                    # Create summary with statistics (proper singular/plural)
-                    listing_word = "listing" if len(new_listings) == 1 else "listings"
-                    summary_parts = [f"**{len(new_listings)} new {listing_word}** found in Amsterdam!"]
-                    if new_count > 0:
-                        new_word = "listing" if new_count == 1 else "listings"
-                        summary_parts.append(f"🆕 {new_count} brand new {new_word}")
-                    if top_ad_count > 0:
-                        featured_word = "listing" if top_ad_count == 1 else "listings"
-                        summary_parts.append(f"⭐ {top_ad_count} featured {featured_word}")
-                    
-                    # Price range
-                    prices = [l.get('totalRentalPrice', 0) for l in new_listings if l.get('totalRentalPrice', 0) > 0]
-                    if prices:
-                        min_price = min(prices)
-                        max_price = max(prices)
-                        summary_parts.append(f"💰 €{min_price}-€{max_price}/month")
-                    
-                    header_embed = DiscordEmbed(
-                        title="🔔 Kamernet Listings Alert",
-                        description="\n".join(summary_parts),
-                        color=0xff6b35
-                    )
-                    
-                    # Add useful footer
-                    footer_text = "Kamernet Scraper • Respecting robots.txt • Click listings for details"
-                    if total_batches > 1:
-                        footer_text += f" • Batch 1 of {total_batches}"
-                    
-                    header_embed.set_footer(
-                        text=footer_text,
-                        icon_url="https://kamernet.nl/favicon.ico"
-                    )
-                    header_embed.set_timestamp()
-                    
-                    webhook.add_embed(header_embed)
-                    
-                    # Add up to 9 listing embeds (10 total with header)
-                    max_listings_in_first_batch = 9
-                    listings_to_add = batch_listings[:max_listings_in_first_batch]
+                    webhook.add_embed(self._build_summary_header(new_listings, total_batches))
                 else:
-                    # For subsequent batches, add header with batch info
                     batch_header = DiscordEmbed(
                         title=f"📋 Batch {batch_num + 1} of {total_batches}",
                         description=f"Listings {start_idx + 1}-{end_idx} of {len(new_listings)}",
-                        color=0x0099ff
+                        color=0x0099ff,
                     )
                     batch_header.set_footer(text="Kamernet Scraper • Continued...")
                     webhook.add_embed(batch_header)
-                    
-                    # Add up to 9 listing embeds (10 total with batch header)
-                    max_listings_in_batch = 9
-                    listings_to_add = batch_listings[:max_listings_in_batch]
-                
-                # Add individual listing embeds
-                for listing in listings_to_add:
-                    embed = self.format_listing_for_discord(listing)
-                    webhook.add_embed(embed)
-                
-                # Send the webhook
+
+                # 9 listing embeds max (1 slot used by header)
+                for listing in batch_listings[:9]:
+                    webhook.add_embed(self.format_listing_for_discord(listing))
+
                 response = webhook.execute()
-                
-                if response.status_code == 200 or response.status_code == 204:
-                    batch_info = f"batch {batch_num + 1}/{total_batches}" if total_batches > 1 else "notification"
-                    print(f"✅ Successfully sent Discord {batch_info} with {len(listings_to_add)} listings")
+                if response.status_code in (200, 204):
+                    label = f"batch {batch_num + 1}/{total_batches}" if total_batches > 1 else "notification"
+                    print(f"✅ Successfully sent Discord {label} with {min(len(batch_listings), 9)} listings")
                 else:
                     error_text = ""
                     try:
-                        error_data = response.json() if hasattr(response, 'json') else {}
-                        error_text = f": {error_data}"
-                    except:
+                        error_text = f": {response.json()}"
+                    except Exception:
                         pass
                     print(f"❌ Webhook status code {response.status_code}{error_text}")
-                    print(f"Failed to send Discord notification batch {batch_num + 1}")
-                
-                # Rate limiting between batches to respect Discord limits (5 req/2sec)
+
                 if batch_num < total_batches - 1:
-                    time.sleep(3)  # Wait 3 seconds between batches (safer than 2)
-                    
+                    time.sleep(3)
+
         except Exception as e:
-            print(f"Error sending Discord notification: {e}")
             import traceback
-            print(f"Full error: {traceback.format_exc()}")
+            print(f"Error sending Discord notification: {e}\n{traceback.format_exc()}")
     
     def check_for_new_listings(self):
         """Check for new listings and send notifications"""
