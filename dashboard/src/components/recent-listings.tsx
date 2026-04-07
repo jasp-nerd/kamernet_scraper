@@ -7,7 +7,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import type { Listing } from "@/lib/types";
 import {
   formatPrice,
@@ -35,7 +34,6 @@ export function RecentListings({ listings }: { listings: Listing[] }) {
           <TableHead>Type</TableHead>
           <TableHead>Furnishing</TableHead>
           <TableHead>Seen</TableHead>
-          <TableHead>Status</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -58,13 +56,6 @@ export function RecentListings({ listings }: { listings: Listing[] }) {
             <TableCell>{furnishingLabel(listing.furnishing_id)}</TableCell>
             <TableCell className="text-muted-foreground text-sm">
               {formatRelativeDate(listing.first_seen_at)}
-            </TableCell>
-            <TableCell>
-              {listing.disappeared_at ? (
-                <Badge variant="secondary">Gone</Badge>
-              ) : (
-                <Badge variant="default">Active</Badge>
-              )}
             </TableCell>
           </TableRow>
         ))}

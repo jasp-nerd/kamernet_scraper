@@ -46,11 +46,6 @@ export default async function ListingDetailPage({
         <div className="flex gap-2">
           {listing.is_new_advert && <Badge>New</Badge>}
           {listing.is_top_advert && <Badge variant="secondary">Featured</Badge>}
-          {listing.disappeared_at ? (
-            <Badge variant="secondary">Gone</Badge>
-          ) : (
-            <Badge variant="default">Active</Badge>
-          )}
         </div>
       </div>
 
@@ -277,10 +272,6 @@ export default async function ListingDetailPage({
         <CardContent className="space-y-3">
           <DetailRow label="First Seen" value={formatDateTime(listing.first_seen_at)} />
           <DetailRow label="Last Seen" value={formatDateTime(listing.last_seen_at)} />
-          <DetailRow
-            label="Disappeared"
-            value={listing.disappeared_at ? formatDateTime(listing.disappeared_at) : "Still active"}
-          />
           <DetailRow label="Published" value={formatDateTime(listing.publish_date)} />
           <DetailRow label="Listing ID" value={listing.listing_id.toString()} />
           <Separator />

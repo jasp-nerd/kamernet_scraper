@@ -8,7 +8,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/filter-bar";
 import { getListings } from "@/lib/queries";
 import type { ListingsFilter } from "@/lib/types";
@@ -43,8 +42,6 @@ export default async function ListingsPage({
     filters.furnishing = Number(params.furnishing);
   if (params.minArea) filters.minArea = Number(params.minArea);
   if (params.maxArea) filters.maxArea = Number(params.maxArea);
-  if (params.active === "true") filters.active = true;
-  if (params.active === "false") filters.active = false;
   if (params.minScore) filters.minScore = Number(params.minScore);
 
   const { listings, total } = await getListings(filters);
@@ -75,13 +72,12 @@ export default async function ListingsPage({
               <TableHead>City</TableHead>
               <TableHead>Seen</TableHead>
               <TableHead>Score</TableHead>
-              <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {listings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   No listings found
                 </TableCell>
               </TableRow>
@@ -125,13 +121,6 @@ export default async function ListingsPage({
                       </span>
                     ) : (
                       <span className="text-muted-foreground">--</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {listing.disappeared_at ? (
-                      <Badge variant="secondary">Gone</Badge>
-                    ) : (
-                      <Badge variant="default">Active</Badge>
                     )}
                   </TableCell>
                 </TableRow>

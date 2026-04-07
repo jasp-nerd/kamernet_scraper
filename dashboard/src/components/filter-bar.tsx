@@ -97,24 +97,6 @@ export function FilterBar() {
         </Select>
       </div>
       <div>
-        <label className="text-xs text-muted-foreground mb-1 block">
-          Status
-        </label>
-        <Select
-          defaultValue={searchParams.get("active") ?? "all"}
-          onValueChange={(v) => updateParam("active", v)}
-        >
-          <SelectTrigger className="w-28">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="true">Active</SelectItem>
-            <SelectItem value="false">Gone</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
         <label className="text-xs text-muted-foreground mb-1 block">Sort</label>
         <Select
           defaultValue={searchParams.get("sort") ?? "first_seen_at"}
