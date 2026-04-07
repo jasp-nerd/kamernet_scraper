@@ -14,7 +14,7 @@ import { getListings } from "@/lib/queries";
 import type { ListingsFilter } from "@/lib/types";
 import {
   formatPrice,
-  formatRelativeDate,
+  formatDateTime,
   listingTypeLabel,
   furnishingLabel,
 } from "@/lib/utils";
@@ -108,7 +108,7 @@ export default async function ListingsPage({
                   <TableCell>{furnishingLabel(listing.furnishing_id)}</TableCell>
                   <TableCell>{listing.city ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                    {formatRelativeDate(listing.first_seen_at)}
+                    {formatDateTime(listing.first_seen_at)}
                   </TableCell>
                   <TableCell>
                     {listing.ai_score != null ? (

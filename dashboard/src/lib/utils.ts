@@ -19,6 +19,18 @@ export function formatDate(dateStr: string | null): string {
   });
 }
 
+export function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return "N/A";
+  return new Date(dateStr).toLocaleString("nl-NL", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export function formatRelativeDate(dateStr: string | null): string {
   if (!dateStr) return "N/A";
   const date = new Date(dateStr);

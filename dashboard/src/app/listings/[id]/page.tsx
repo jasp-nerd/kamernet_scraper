@@ -7,6 +7,7 @@ import { getListingById } from "@/lib/queries";
 import {
   formatPrice,
   formatDate,
+  formatDateTime,
   formatRelativeDate,
   listingTypeLabel,
   furnishingLabel,
@@ -274,13 +275,13 @@ export default async function ListingDetailPage({
           <CardTitle>Tracking Info</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <DetailRow label="First Seen" value={formatDate(listing.first_seen_at)} />
-          <DetailRow label="Last Seen" value={formatRelativeDate(listing.last_seen_at)} />
+          <DetailRow label="First Seen" value={formatDateTime(listing.first_seen_at)} />
+          <DetailRow label="Last Seen" value={formatDateTime(listing.last_seen_at)} />
           <DetailRow
             label="Disappeared"
-            value={listing.disappeared_at ? formatDate(listing.disappeared_at) : "Still active"}
+            value={listing.disappeared_at ? formatDateTime(listing.disappeared_at) : "Still active"}
           />
-          <DetailRow label="Published" value={formatDate(listing.publish_date)} />
+          <DetailRow label="Published" value={formatDateTime(listing.publish_date)} />
           <DetailRow label="Listing ID" value={listing.listing_id.toString()} />
           <Separator />
           <a
