@@ -82,8 +82,9 @@ class KamernetScraper:
 
         # Telegram notifications
         self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
         self.telegram_score_threshold = int(os.getenv('TELEGRAM_SCORE_THRESHOLD', '70'))
+        self.telegram_password = os.getenv('TELEGRAM_PASSWORD', 'snoezepoes@Sofia')
+        self.telegram_last_update_id = 0
 
         # Search parameters from the provided URL
         self.search_params = {
@@ -514,14 +515,126 @@ Respond with ONLY valid JSON, no markdown code fences, no extra text:
 
     # ── Telegram methods ─────────────────────────────────────────────
 
+    def _telegram_send(self, chat_id: int, text: str):
+        """Send a single Telegram message. Returns True on success."""
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": False,
+                },
+                timeout=10,
+            )
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    def _get_telegram_subscribers(self) -> List[int]:
+        """Load all subscriber chat_ids from the database."""
+        if not self._ensure_db():
+            return []
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute("SELECT chat_id FROM telegram_subscribers")
+            return [row[0] for row in cur.fetchall()]
+        except Exception as e:
+            print(f"  ⚠️  DB load subscribers error: {e}")
+            return []
+
+    def _add_telegram_subscriber(self, chat_id: int, username: str, first_name: str):
+        """Add a new subscriber to the database."""
+        if not self._ensure_db():
+            return False
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute("""
+                INSERT INTO telegram_subscribers (chat_id, username, first_name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (chat_id) DO NOTHING
+            """, (chat_id, username, first_name))
+            return cur.rowcount > 0
+        except Exception as e:
+            print(f"  ⚠️  DB add subscriber error: {e}")
+            return False
+
+    def _check_telegram_subscriptions(self):
+        """Check for new /start messages and subscribe users with correct password."""
+        if not self.telegram_bot_token:
+            return
+        try:
+            resp = requests.get(
+                f"https://api.telegram.org/bot{self.telegram_bot_token}/getUpdates",
+                params={"offset": self.telegram_last_update_id + 1, "timeout": 0},
+                timeout=10,
+            )
+            data = resp.json()
+            if not data.get("ok") or not data.get("result"):
+                return
+
+            for update in data["result"]:
+                self.telegram_last_update_id = update["update_id"]
+                message = update.get("message", {})
+                text = message.get("text", "").strip()
+                chat = message.get("chat", {})
+                chat_id = chat.get("id")
+                if not chat_id or not text:
+                    continue
+
+                first_name = chat.get("first_name", "")
+                username = message.get("from", {}).get("username", "")
+
+                # Check for /start with password
+                if text.startswith("/start"):
+                    parts = text.split(maxsplit=1)
+                    password = parts[1] if len(parts) > 1 else ""
+
+                    if password == self.telegram_password:
+                        is_new = self._add_telegram_subscriber(chat_id, username, first_name)
+                        if is_new:
+                            self._telegram_send(chat_id,
+                                "✅ <b>Subscribed!</b>\n\n"
+                                "You'll receive notifications for high-scoring apartment listings (≥70/100).\n\n"
+                                "Send /stop to unsubscribe."
+                            )
+                            print(f"  📱 New Telegram subscriber: {first_name} ({chat_id})")
+                        else:
+                            self._telegram_send(chat_id, "You're already subscribed! 👍")
+                    else:
+                        self._telegram_send(chat_id,
+                            "🔒 Password required.\n\n"
+                            "Send: <code>/start yourpassword</code>"
+                        )
+
+                elif text == "/stop":
+                    if self._ensure_db():
+                        try:
+                            cur = self.db_conn.cursor()
+                            cur.execute("DELETE FROM telegram_subscribers WHERE chat_id = %s", (chat_id,))
+                            if cur.rowcount > 0:
+                                self._telegram_send(chat_id, "👋 Unsubscribed. Send /start password to resubscribe.")
+                                print(f"  📱 Telegram unsubscribe: {first_name} ({chat_id})")
+                            else:
+                                self._telegram_send(chat_id, "You weren't subscribed.")
+                        except Exception as e:
+                            print(f"  ⚠️  DB unsubscribe error: {e}")
+        except Exception as e:
+            print(f"  ⚠️  Telegram subscription check error: {e}")
+
     def _send_telegram_notification(self, listing: Dict):
-        """Send a Telegram notification for high-scoring listings."""
-        if not self.telegram_bot_token or not self.telegram_chat_id:
+        """Send a Telegram notification to all subscribers for high-scoring listings."""
+        if not self.telegram_bot_token:
             return
         score = listing.get('ai_score')
         if score is None or score < self.telegram_score_threshold:
             return
         try:
+            subscribers = self._get_telegram_subscribers()
+            if not subscribers:
+                return
+
             listing_id = listing.get('listingId')
             city_slug = listing.get('citySlug', '')
             street_slug = listing.get('streetSlug', '')
@@ -541,20 +654,11 @@ Respond with ONLY valid JSON, no markdown code fences, no extra text:
                 f"🔗 <a href=\"{url}\">View on Kamernet</a>"
             )
 
-            resp = requests.post(
-                f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage",
-                json={
-                    "chat_id": self.telegram_chat_id,
-                    "text": text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": False,
-                },
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                print(f"  📱 Telegram notification sent for listing {listing_id} (score: {score})")
-            else:
-                print(f"  ⚠️  Telegram API returned {resp.status_code}: {resp.text[:200]}")
+            sent = 0
+            for chat_id in subscribers:
+                if self._telegram_send(chat_id, text):
+                    sent += 1
+            print(f"  📱 Telegram notification sent to {sent}/{len(subscribers)} subscribers for listing {listing_id} (score: {score})")
         except Exception as e:
             print(f"  ⚠️  Telegram notification failed: {e}")
 
@@ -964,6 +1068,9 @@ Respond with ONLY valid JSON, no markdown code fences, no extra text:
         print(f"Checking for new listings at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*50}")
 
+        # Process Telegram /start and /stop commands
+        self._check_telegram_subscriptions()
+
         listings = self.fetch_listings()
 
         if not listings:
@@ -1054,7 +1161,7 @@ Respond with ONLY valid JSON, no markdown code fences, no extra text:
         print(f"Discord webhook configured: {'Yes' if self.discord_webhook_url else 'No'}")
         print(f"Database configured: {'Yes' if self.database_url else 'No'}")
         print(f"AI scoring configured: {'Yes (' + self.openrouter_model + ')' if self.openrouter_api_key else 'No'}")
-        print(f"Telegram notifications: {'Yes (threshold: ' + str(self.telegram_score_threshold) + ')' if self.telegram_bot_token else 'No'}")
+        print(f"Telegram notifications: {'Yes (threshold: ' + str(self.telegram_score_threshold) + ', password-protected)' if self.telegram_bot_token else 'No'}")
         print(f"Following robots.txt guidelines - avoiding disallowed paths")
         
         while True:

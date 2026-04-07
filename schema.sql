@@ -70,6 +70,14 @@ CREATE TABLE listing_snapshots (
 CREATE INDEX idx_snapshots_listing ON listing_snapshots (listing_id);
 CREATE INDEX idx_snapshots_captured ON listing_snapshots (captured_at);
 
+-- Telegram subscriber management
+CREATE TABLE telegram_subscribers (
+    chat_id             BIGINT PRIMARY KEY,
+    username            TEXT,
+    first_name          TEXT,
+    subscribed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- AI scoring columns (added via migration)
 -- ALTER TABLE listings ADD COLUMN ai_score INTEGER;
 -- ALTER TABLE listings ADD COLUMN ai_score_reasoning TEXT;
