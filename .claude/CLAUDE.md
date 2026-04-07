@@ -1,0 +1,55 @@
+# Kamernet Scraper
+
+## Architecture
+- **Scraper**: `kamernet_scraper.py` — Python, runs on Heroku as worker dyno (`kamernet-monitor-jasp`)
+- **Dashboard**: `dashboard/` — Next.js 16, deployed on Vercel
+- **Database**: PostgreSQL on Neon (Vercel Postgres)
+- **Connection string**: `dashboard/.env.local` as `DATABASE_URL`
+
+## Database Access
+```bash
+export DATABASE_URL=$(grep '^DATABASE_URL=' dashboard/.env.local | cut -d'"' -f2) && python3 -c "
+import psycopg2, os
+conn = psycopg2.connect(os.environ['DATABASE_URL'])
+cur = conn.cursor()
+cur.execute('SELECT ...')
+conn.close()
+"
+```
+
+## Schema (4 tables)
+
+### `listings` — core rental listings
+Key columns: `listing_id` (PK), street, city, city_slug, street_slug, postal_code, total_rental_price, surface_area, listing_type, furnishing_id, detailed_title, detailed_description, ai_score (INTEGER), ai_score_reasoning (TEXT), first_seen_at, last_seen_at, disappeared_at
+
+### `listing_snapshots` — price/surface tracking
+- id, listing_id (FK), total_rental_price, surface_area, captured_at
+
+### `scrape_runs` — scraper execution logs
+- id, started_at, finished_at, total_found, new_found, errors
+
+### `telegram_subscribers` — Telegram notification subscribers
+- chat_id (PK), username, first_name, subscribed_at
+
+## Key Features
+- **AI Scoring**: OpenRouter API scores listings 0-100 via structured rubric. Primary model: `openai/gpt-oss-120b:free`, fallback: `deepseek/deepseek-v3.2`
+- **Telegram**: Password-protected subscriber system. Users send `/start <password>` to subscribe, `/stop` to unsubscribe. Notifications sent for listings scoring >= threshold (default 70)
+- **Discord**: Webhook notifications for all new listings
+
+## Heroku Env Vars
+`DISCORD_WEBHOOK_URL`, `DATABASE_URL`, `OPENROUTER_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_PASSWORD`, `TELEGRAM_SCORE_THRESHOLD` (default 70), `CHECK_INTERVAL_MIN` (default 50), `CHECK_INTERVAL_MAX` (default 70)
+
+## Kamernet Listing URLs
+```
+https://kamernet.nl/huren/{city_slug}/{street_slug}/{listing_id}
+```
+
+## Deployment
+- **Heroku** (scraper): `git push heroku main` from project root
+- **Vercel** (dashboard): auto-deploys from Git, or manually: `cd dashboard && vercel --prod`
+- **NEVER run `vercel` from the project root** — only from `dashboard/`. The Vercel project is "dashboard", not "kamernet_scraper".
+
+## Important Notes
+- The "Gone/disappeared" status is unreliable — listings that scroll off page 1 get marked gone but are still live on Kamernet. The status column was removed from the UI but `disappeared_at` remains in the DB for stats.
+- Scraper only checks page 1 of results (sorted by newest).
+- `requests` library is used for both OpenRouter and Telegram APIs (no extra dependencies).
