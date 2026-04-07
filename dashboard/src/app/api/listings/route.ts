@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   if (sp.has("maxArea")) filters.maxArea = Number(sp.get("maxArea"));
   if (sp.get("active") === "true") filters.active = true;
   if (sp.get("active") === "false") filters.active = false;
+  if (sp.has("minScore")) filters.minScore = Number(sp.get("minScore"));
 
   const result = await getListings(filters);
   return NextResponse.json(result);

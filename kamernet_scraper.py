@@ -74,7 +74,17 @@ class KamernetScraper:
         # Consider using PostgreSQL addon or S3 for persistent storage in production
         self.seen_listings_file = "seen_listings.json"
         self.seen_listings: Set[int] = self.load_seen_listings()
-        
+
+        # AI scoring via OpenRouter
+        self.openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+        self.openrouter_model = os.getenv('OPENROUTER_MODEL', 'openai/gpt-oss-120b:free')
+        self.openrouter_fallback_model = os.getenv('OPENROUTER_FALLBACK_MODEL', 'deepseek/deepseek-v3.2')
+
+        # Telegram notifications
+        self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+        self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        self.telegram_score_threshold = int(os.getenv('TELEGRAM_SCORE_THRESHOLD', '70'))
+
         # Search parameters from the provided URL
         self.search_params = {
             'pageNo': 1,
@@ -332,6 +342,223 @@ class KamernetScraper:
             print(f"⚠️  DB log scrape run error: {e}")
 
     # ── End database methods ─────────────────────────────────────────
+
+    # ── AI scoring methods ───────────────────────────────────────────
+
+    ENERGY_LABEL_MAP = {1: "A++", 2: "A+", 3: "A", 4: "B", 5: "C", 6: "D", 7: "E", 8: "F", 9: "G"}
+
+    def _build_scoring_prompt(self, listing: Dict) -> str:
+        """Build a structured prompt for AI scoring of a listing."""
+        listing_type = listing.get('listingType', 0)
+        furnishing_id = listing.get('furnishingId', 0)
+        type_text = self.TYPE_MAP.get(listing_type, "Unknown")
+        furnishing_text = self.FURNISHING_MAP.get(furnishing_id, "Unknown")
+        energy_text = self.ENERGY_LABEL_MAP.get(listing.get('energy_label_id'), "Unknown")
+
+        avail_start = listing.get('availabilityStartDate') or listing.get('availability_start') or 'Unknown'
+        avail_end = listing.get('availabilityEndDate') or listing.get('availability_end') or 'Indefinite'
+        description = (listing.get('detailed_description') or '')[:500]
+
+        listing_data = f"""- Title: {listing.get('detailed_title', 'N/A')}
+- Price: EUR {listing.get('totalRentalPrice', 'N/A')}/month
+- Deposit: EUR {listing.get('deposit', 'N/A')}
+- Utilities included: {listing.get('utilitiesIncluded', 'Unknown')}
+- Area: {listing.get('surfaceArea', 'N/A')} m2
+- City: {listing.get('city', 'N/A')}, Postal Code: {listing.get('postal_code', 'N/A')}
+- Street: {listing.get('street', 'N/A')} {listing.get('house_number', '')}
+- Type: {type_text} ({furnishing_text})
+- Rooms: {listing.get('num_rooms', 'N/A')}, Bedrooms: {listing.get('num_bedrooms', 'N/A')}
+- Energy label: {energy_text}
+- Pets allowed: {listing.get('pets_allowed', 'Unknown')}
+- Smoking allowed: {listing.get('smoking_allowed', 'Unknown')}
+- Registration allowed: {listing.get('registration_allowed', 'Unknown')}
+- Age range: {listing.get('min_age', 'N/A')}-{listing.get('max_age', 'N/A')}
+- Suitable for: {listing.get('suitable_for_persons', 'N/A')} person(s)
+- Available from: {avail_start}
+- Available until: {avail_end}
+- Landlord: {listing.get('landlord_name', 'N/A')} (verified: {listing.get('landlord_verified', False)})
+- Landlord response rate: {listing.get('landlord_response_rate', 'N/A')}%
+- Landlord response time: {listing.get('landlord_response_time', 'N/A')}
+- Landlord member since: {listing.get('landlord_member_since', 'N/A')}
+- Landlord active listings: {listing.get('landlord_active_listings', 'N/A')}
+- Description: {description}"""
+
+        return f"""You are a rental listing evaluator for two people (ages 20 and 24) looking for an apartment in Amsterdam.
+
+## CRITICAL RULE — Suitability for 2 People
+First, determine if this listing can accommodate 2 people. Check:
+- "Suitable for" field (must be >= 2, or N/A/unspecified)
+- Description mentions "couples", "2 persons", "two people", "samen", "stel", or similar
+- Number of rooms/bedrooms (a small studio for 1 person = likely unsuitable)
+- Type of listing (Room = almost always 1 person only)
+If the listing is CLEARLY only for 1 person (e.g. suitable_for_persons = 1, or it's a single room in shared house), give a total score of 0-10 maximum regardless of other qualities. Explain why in the reasoning.
+
+## Scoring Rubric (total: 100 points) — only apply full rubric for listings suitable for 2 people
+
+### Price Value (0-30 points)
+- Budget is around EUR 2000/month. Lower is better.
+- EUR 1500 or below = 30pts, EUR 1500-1800 = 25pts, EUR 1800-2000 = 20pts, EUR 2000-2200 = 12pts, above EUR 2200 = 5pts
+- Utilities included is a bonus (+3pts)
+- Reasonable deposit is a minor bonus
+
+### Location — Proximity to Amsterdam Zuid / VU Amsterdam (0-25 points)
+- Amsterdam Zuid, Buitenveldert, Zuidas, postal codes 1081-1082 = 25pts
+- De Pijp, Rivierenbuurt, Amstelveen, postal codes 1071-1079 = 20pts
+- Amsterdam Oud-Zuid, Oud-West, Centrum = 15pts
+- Other Amsterdam neighborhoods = 10pts
+- Outside Amsterdam = 5pts
+- Use postal code, street name, and city to determine approximate location
+
+### Property Quality (0-20 points)
+- Size: >=60m2 = 15pts, 40-60m2 = 10pts, <40m2 = 5pts
+- Rooms: 2+ bedrooms = 5pts, 1 bedroom = 3pts, studio = 1pt
+
+### Landlord Reliability (0-15 points)
+- Verified landlord = 5pts
+- Response rate >80% = 5pts, 50-80% = 3pts, <50% = 1pt
+- Few active listings (1-3) = 5pts, many (10+) = 1pt
+
+### Lease Terms (0-10 points)
+- Long-term (>12 months or indefinite) = 10pts
+- 6-12 months = 5pts
+- <6 months = 2pts
+- Pets allowed = bonus +2pts (nice to have, not essential)
+- Registration allowed = bonus +2pts (cap total category at 10)
+
+## User Context
+Two people (ages 20 and 24) looking for a long-term apartment near VU Amsterdam / Amsterdam Zuid. Budget around EUR 2000. Pets nice-to-have but not required. Registration is a plus.
+
+## Listing Data
+{listing_data}
+
+## Response
+Respond with ONLY valid JSON, no markdown code fences, no extra text:
+{{"score": <integer 0-100>, "reasoning": "<1-2 sentences: key positives and negatives>"}}"""
+
+    def _call_openrouter(self, prompt: str, model: str) -> Optional[Dict]:
+        """Make a single OpenRouter API call. Returns parsed response or None."""
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.openrouter_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 300,
+                    "temperature": 0.3,
+                },
+                timeout=30,
+            )
+            if response.status_code != 200:
+                print(f"  ⚠️  OpenRouter {model} returned status {response.status_code}")
+                return None
+            data = response.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # Try regex fallback for score extraction
+            if content:
+                score_match = re.search(r'"score"\s*:\s*(\d+)', content)
+                reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]*)"', content)
+                if score_match:
+                    return {
+                        "score": int(score_match.group(1)),
+                        "reasoning": reasoning_match.group(1) if reasoning_match else "Score extracted from malformed response"
+                    }
+            print(f"  ⚠️  OpenRouter {model}: failed to parse JSON response")
+            return None
+        except Exception as e:
+            print(f"  ⚠️  OpenRouter {model} error: {e}")
+            return None
+
+    def _score_listing(self, listing: Dict) -> tuple:
+        """Score a listing using AI via OpenRouter. Returns (score, reasoning) or (None, None)."""
+        if not self.openrouter_api_key:
+            return (None, None)
+        try:
+            prompt = self._build_scoring_prompt(listing)
+
+            # Try primary model
+            result = self._call_openrouter(prompt, self.openrouter_model)
+
+            # Fallback to secondary model
+            if result is None:
+                print(f"  🔄 Falling back to {self.openrouter_fallback_model}...")
+                result = self._call_openrouter(prompt, self.openrouter_fallback_model)
+
+            if result and "score" in result:
+                score = max(0, min(100, int(result["score"])))
+                reasoning = str(result.get("reasoning", ""))[:500]
+                return (score, reasoning)
+
+            return (None, None)
+        except Exception as e:
+            print(f"  ⚠️  Scoring error: {e}")
+            return (None, None)
+
+    def _update_ai_score(self, listing_id: int, score: int, reasoning: str):
+        """Update the AI score for a listing in the database."""
+        if not self._ensure_db():
+            return
+        try:
+            cur = self.db_conn.cursor()
+            cur.execute(
+                "UPDATE listings SET ai_score = %s, ai_score_reasoning = %s WHERE listing_id = %s",
+                (score, reasoning, listing_id)
+            )
+        except Exception as e:
+            print(f"  ⚠️  DB ai_score update error for {listing_id}: {e}")
+
+    # ── Telegram methods ─────────────────────────────────────────────
+
+    def _send_telegram_notification(self, listing: Dict):
+        """Send a Telegram notification for high-scoring listings."""
+        if not self.telegram_bot_token or not self.telegram_chat_id:
+            return
+        score = listing.get('ai_score')
+        if score is None or score < self.telegram_score_threshold:
+            return
+        try:
+            listing_id = listing.get('listingId')
+            city_slug = listing.get('citySlug', '')
+            street_slug = listing.get('streetSlug', '')
+            url = f"https://kamernet.nl/huren/{city_slug}/{street_slug}/{listing_id}"
+
+            price = listing.get('totalRentalPrice', 0)
+            area = listing.get('surfaceArea', 0)
+            city = listing.get('city', 'Unknown')
+            title = listing.get('detailed_title') or listing.get('street') or 'Unknown'
+            reasoning = listing.get('ai_score_reasoning', '')
+
+            text = (
+                f"🏠 <b>High-scoring listing: {score}/100</b>\n\n"
+                f"<b>{title}</b>\n"
+                f"💰 €{price}/mo  |  📐 {area}m²  |  📍 {city}\n\n"
+                f"💡 <i>{reasoning}</i>\n\n"
+                f"🔗 <a href=\"{url}\">View on Kamernet</a>"
+            )
+
+            resp = requests.post(
+                f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage",
+                json={
+                    "chat_id": self.telegram_chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": False,
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                print(f"  📱 Telegram notification sent for listing {listing_id} (score: {score})")
+            else:
+                print(f"  ⚠️  Telegram API returned {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            print(f"  ⚠️  Telegram notification failed: {e}")
+
+    # ── End AI/Telegram methods ──────────────────────────────────────
 
     def extract_listings_from_html(self, html_content: str) -> List[Dict]:
         """Extract listings data from the HTML content"""
@@ -616,6 +843,16 @@ class KamernetScraper:
 
         self._add_detail_fields(embed, listing)
 
+        # AI Score
+        ai_score = listing.get('ai_score')
+        if ai_score is not None:
+            score_emoji = "🟢" if ai_score >= 70 else "🟡" if ai_score >= 40 else "🔴"
+            score_text = f"{score_emoji} **{ai_score}/100**"
+            reasoning = listing.get('ai_score_reasoning', '')
+            if reasoning:
+                score_text += f"\n{reasoning[:200]}"
+            embed.add_embed_field(name="🤖 AI Score", value=score_text, inline=False)
+
         # Badges
         badges = []
         if listing.get('isNewAdvert', False):
@@ -771,6 +1008,22 @@ class KamernetScraper:
             for listing in enhanced_listings:
                 self._upsert_listing(listing)
 
+            # Score listings with AI (non-blocking)
+            if self.openrouter_api_key:
+                print(f"\n🤖 Scoring {len(enhanced_listings)} listings with AI...")
+                for listing in enhanced_listings:
+                    score, reasoning = self._score_listing(listing)
+                    if score is not None:
+                        listing['ai_score'] = score
+                        listing['ai_score_reasoning'] = reasoning
+                        self._update_ai_score(listing['listingId'], score, reasoning)
+                        print(f"  📊 Listing {listing['listingId']}: {score}/100")
+                    time.sleep(1)  # Rate limiting for free model
+
+            # Send Telegram for high-scoring listings
+            for listing in enhanced_listings:
+                self._send_telegram_notification(listing)
+
             # Send Discord notification with enhanced data
             self.send_discord_notification(enhanced_listings)
         else:
@@ -800,6 +1053,8 @@ class KamernetScraper:
         print(f"Monitoring URL: {self.search_url}")
         print(f"Discord webhook configured: {'Yes' if self.discord_webhook_url else 'No'}")
         print(f"Database configured: {'Yes' if self.database_url else 'No'}")
+        print(f"AI scoring configured: {'Yes (' + self.openrouter_model + ')' if self.openrouter_api_key else 'No'}")
+        print(f"Telegram notifications: {'Yes (threshold: ' + str(self.telegram_score_threshold) + ')' if self.telegram_bot_token else 'No'}")
         print(f"Following robots.txt guidelines - avoiding disallowed paths")
         
         while True:

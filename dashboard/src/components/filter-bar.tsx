@@ -127,8 +127,21 @@ export function FilterBar() {
             <SelectItem value="first_seen_at">Newest</SelectItem>
             <SelectItem value="total_rental_price">Price</SelectItem>
             <SelectItem value="surface_area">Area</SelectItem>
+            <SelectItem value="ai_score">AI Score</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground mb-1 block">
+          Min Score
+        </label>
+        <Input
+          type="number"
+          placeholder="0-100"
+          className="w-24"
+          defaultValue={searchParams.get("minScore") ?? ""}
+          onBlur={(e) => updateParam("minScore", e.target.value)}
+        />
       </div>
       <Button variant="outline" size="sm" onClick={clearFilters}>
         Clear

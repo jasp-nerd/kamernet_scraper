@@ -225,6 +225,35 @@ export default async function ListingDetailPage({
         </Card>
       </div>
 
+      {/* AI Score */}
+      {listing.ai_score != null && (
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Score</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-4xl font-bold text-center">
+              <span
+                className={
+                  listing.ai_score >= 70
+                    ? "text-green-600"
+                    : listing.ai_score >= 40
+                      ? "text-yellow-600"
+                      : "text-red-500"
+                }
+              >
+                {listing.ai_score}/100
+              </span>
+            </div>
+            {listing.ai_score_reasoning && (
+              <p className="text-sm text-muted-foreground text-center">
+                {listing.ai_score_reasoning}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Description */}
       {listing.detailed_description && (
         <Card>

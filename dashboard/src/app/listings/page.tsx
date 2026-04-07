@@ -45,6 +45,7 @@ export default async function ListingsPage({
   if (params.maxArea) filters.maxArea = Number(params.maxArea);
   if (params.active === "true") filters.active = true;
   if (params.active === "false") filters.active = false;
+  if (params.minScore) filters.minScore = Number(params.minScore);
 
   const { listings, total } = await getListings(filters);
   const totalPages = Math.ceil(total / (filters.limit ?? 20));
@@ -73,13 +74,14 @@ export default async function ListingsPage({
               <TableHead>Furnishing</TableHead>
               <TableHead>City</TableHead>
               <TableHead>Seen</TableHead>
+              <TableHead>Score</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {listings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   No listings found
                 </TableCell>
               </TableRow>
@@ -107,6 +109,23 @@ export default async function ListingsPage({
                   <TableCell>{listing.city ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
                     {formatRelativeDate(listing.first_seen_at)}
+                  </TableCell>
+                  <TableCell>
+                    {listing.ai_score != null ? (
+                      <span
+                        className={`font-semibold ${
+                          listing.ai_score >= 70
+                            ? "text-green-600"
+                            : listing.ai_score >= 40
+                              ? "text-yellow-600"
+                              : "text-red-500"
+                        }`}
+                      >
+                        {listing.ai_score}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">--</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {listing.disappeared_at ? (

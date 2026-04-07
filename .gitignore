@@ -26,3 +26,5 @@ dashboard/.env.local
 dashboard/.env
 dashboard/.vercel/
 dashboard/node_modules/
+.vercel
+.env*.local

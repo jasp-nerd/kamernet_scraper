@@ -70,6 +70,11 @@ CREATE TABLE listing_snapshots (
 CREATE INDEX idx_snapshots_listing ON listing_snapshots (listing_id);
 CREATE INDEX idx_snapshots_captured ON listing_snapshots (captured_at);
 
+-- AI scoring columns (added via migration)
+-- ALTER TABLE listings ADD COLUMN ai_score INTEGER;
+-- ALTER TABLE listings ADD COLUMN ai_score_reasoning TEXT;
+-- CREATE INDEX idx_listings_ai_score ON listings (ai_score) WHERE ai_score IS NOT NULL;
+
 -- Scraper observability
 CREATE TABLE scrape_runs (
     id              SERIAL PRIMARY KEY,

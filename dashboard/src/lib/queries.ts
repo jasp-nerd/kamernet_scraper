@@ -67,6 +67,7 @@ export async function getListings(
     sort = "first_seen_at",
     order = "desc",
     active,
+    minScore,
   } = filters;
   const offset = (page - 1) * limit;
 
@@ -106,6 +107,10 @@ export async function getListings(
     conditions.push(`surface_area <= $${paramIdx++}`);
     params.push(maxArea);
   }
+  if (minScore !== undefined) {
+    conditions.push(`ai_score >= $${paramIdx++}`);
+    params.push(minScore);
+  }
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -116,6 +121,7 @@ export async function getListings(
     "total_rental_price",
     "surface_area",
     "listing_type",
+    "ai_score",
   ];
   const sortCol = allowedSorts.includes(sort) ? sort : "first_seen_at";
   const sortOrder = order === "asc" ? "ASC" : "DESC";

@@ -44,6 +44,8 @@ export interface Listing {
   is_new_advert: boolean;
   is_top_advert: boolean;
   updated_at: string;
+  ai_score: number | null;
+  ai_score_reasoning: string | null;
 }
 
 export interface Stats {
@@ -88,4 +90,5 @@ export interface ListingsFilter {
   sort?: string;
   order?: "asc" | "desc";
   active?: boolean;
+  minScore?: number;
 }
