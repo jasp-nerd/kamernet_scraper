@@ -78,6 +78,96 @@ export interface TypeBreakdown {
   avg_price: number;
 }
 
+export interface CityStat {
+  city: string;
+  count: number;
+  avg_price: number;
+  median_price: number;
+  avg_area: number;
+  avg_price_per_sqm: number | null;
+}
+
+export interface ScoreBucket {
+  bucket: string;
+  count: number;
+  min_score: number;
+  max_score: number;
+}
+
+export interface HeatmapCell {
+  dow: number;
+  hour: number;
+  count: number;
+}
+
+export interface PriceAreaPoint {
+  listing_id: number;
+  price: number;
+  area: number;
+  type: number | null;
+  score: number | null;
+  city: string | null;
+  street: string | null;
+}
+
+export interface LandlordStat {
+  landlord_name: string;
+  count: number;
+  verified: boolean;
+  avg_price: number;
+  avg_score: number | null;
+}
+
+export interface EnergyStat {
+  energy_label_id: number | null;
+  count: number;
+  avg_price: number;
+}
+
+export interface FurnishingStat {
+  furnishing_id: number | null;
+  count: number;
+  avg_price: number;
+}
+
+export interface MarketPulse {
+  total_listings: number;
+  active_listings: number;
+  disappeared_listings: number;
+  avg_lifespan_hours: number | null;
+  median_lifespan_hours: number | null;
+  scrape_runs_24h: number;
+  new_24h: number;
+  gone_24h: number;
+  last_run_at: string | null;
+}
+
+export interface TopListing {
+  listing_id: number;
+  city: string | null;
+  street: string | null;
+  detailed_title: string | null;
+  total_rental_price: number | null;
+  surface_area: number | null;
+  ai_score: number;
+  thumbnail_url: string | null;
+  city_slug: string | null;
+  street_slug: string | null;
+}
+
+export interface PricePerSqmBucket {
+  bucket_start: number;
+  bucket_end: number;
+  count: number;
+}
+
+export interface AllPriceTrend {
+  date: string;
+  avg_price: number;
+  count: number;
+  cumulative: number;
+}
+
 export interface ListingsFilter {
   page?: number;
   limit?: number;

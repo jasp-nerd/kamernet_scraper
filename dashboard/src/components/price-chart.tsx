@@ -109,7 +109,7 @@ export function PriceDistributionChart({ data }: { data: PriceDistribution[] }) 
     <Card>
       <CardHeader>
         <CardTitle className="text-sm font-medium">
-          Price Distribution (Active Listings)
+          Price Distribution
         </CardTitle>
       </CardHeader>
       <CardContent>

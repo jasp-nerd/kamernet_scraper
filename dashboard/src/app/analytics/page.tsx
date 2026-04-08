@@ -3,6 +3,15 @@ import {
   getPriceDistribution,
   getTypeBreakdown,
   getStats,
+  getCityStats,
+  getScoreDistribution,
+  getHourlyHeatmap,
+  getPriceAreaScatter,
+  getLandlordStats,
+  getEnergyStats,
+  getFurnishingStats,
+  getMarketPulse,
+  getTopScoredListings,
 } from "@/lib/queries";
 import {
   PriceTrendChart,
@@ -10,6 +19,17 @@ import {
   TypeBreakdownChart,
   NewListingsChart,
 } from "@/components/price-chart";
+import {
+  MarketPulseCard,
+  CityLeaderboard,
+  ScoreDistribution,
+  HourlyHeatmap,
+  PriceAreaScatter,
+  TopScoredShowcase,
+  LandlordLeaderboard,
+  EnergyLabelChart,
+  FurnishingDonut,
+} from "@/components/analytics-widgets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatPrice } from "@/lib/utils";
 
@@ -23,18 +43,45 @@ export default async function AnalyticsPage({
   const params = await searchParams;
   const days = params.period ? Number(params.period) : 30;
 
-  const [priceTrends, priceDistribution, typeBreakdown, stats] =
-    await Promise.all([
-      getPriceTrends(days),
-      getPriceDistribution(),
-      getTypeBreakdown(),
-      getStats(),
-    ]);
+  const [
+    priceTrends,
+    priceDistribution,
+    typeBreakdown,
+    stats,
+    cityStats,
+    scoreBuckets,
+    heatmap,
+    scatter,
+    landlords,
+    energyStats,
+    furnishingStats,
+    marketPulse,
+    topScored,
+  ] = await Promise.all([
+    getPriceTrends(days),
+    getPriceDistribution(),
+    getTypeBreakdown(),
+    getStats(),
+    getCityStats(10),
+    getScoreDistribution(),
+    getHourlyHeatmap(),
+    getPriceAreaScatter(500),
+    getLandlordStats(8),
+    getEnergyStats(),
+    getFurnishingStats(),
+    getMarketPulse(),
+    getTopScoredListings(6),
+  ]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Analytics</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Analytics</h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Across all {stats.total_listings} tracked listings
+          </p>
+        </div>
         <div className="flex gap-2">
           {[7, 30, 90].map((d) => (
             <a
@@ -52,7 +99,10 @@ export default async function AnalyticsPage({
         </div>
       </div>
 
-      {/* Summary */}
+      {/* Market pulse — vital signs */}
+      <MarketPulseCard pulse={marketPulse} />
+
+      {/* Headline numbers */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -81,11 +131,13 @@ export default async function AnalyticsPage({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Listings
+              Avg Area
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.active_listings}</div>
+            <div className="text-2xl font-bold">
+              {stats.avg_area ? `${stats.avg_area} m²` : "N/A"}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -104,12 +156,35 @@ export default async function AnalyticsPage({
         </Card>
       </div>
 
-      {/* Charts */}
+      {/* Time-series */}
       <PriceTrendChart data={priceTrends} />
 
+      {/* AI scoring + showcase */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ScoreDistribution buckets={scoreBuckets} />
+        <TopScoredShowcase listings={topScored} />
+      </div>
+
+      {/* Scatter (full width) */}
+      <PriceAreaScatter points={scatter} />
+
+      {/* Cities + heatmap */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <CityLeaderboard cities={cityStats} />
+        <HourlyHeatmap data={heatmap} />
+      </div>
+
+      {/* Distributions */}
       <div className="grid gap-6 lg:grid-cols-2">
         <PriceDistributionChart data={priceDistribution} />
         <TypeBreakdownChart data={typeBreakdown} />
+      </div>
+
+      {/* Energy + furnishing + landlords */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <EnergyLabelChart data={energyStats} />
+        <FurnishingDonut data={furnishingStats} />
+        <LandlordLeaderboard landlords={landlords} />
       </div>
 
       <NewListingsChart data={priceTrends} />
