@@ -358,7 +358,7 @@ class KamernetScraper:
 
         avail_start = listing.get('availabilityStartDate') or listing.get('availability_start') or 'Unknown'
         avail_end = listing.get('availabilityEndDate') or listing.get('availability_end') or 'Indefinite'
-        description = (listing.get('detailed_description') or '')[:500]
+        description = (listing.get('detailed_description') or '')[:1500]
 
         listing_data = f"""- Title: {listing.get('detailed_title', 'N/A')}
 - Price: EUR {listing.get('totalRentalPrice', 'N/A')}/month
@@ -367,14 +367,15 @@ class KamernetScraper:
 - Area: {listing.get('surfaceArea', 'N/A')} m2
 - City: {listing.get('city', 'N/A')}, Postal Code: {listing.get('postal_code', 'N/A')}
 - Street: {listing.get('street', 'N/A')} {listing.get('house_number', '')}
-- Type: {type_text} ({furnishing_text})
+- Type: {type_text} (listingType id={listing_type}; 1=Room in shared house, 2=Apartment self-contained, 3/4=Studio self-contained)
+- Furnishing: {furnishing_text}
 - Rooms: {listing.get('num_rooms', 'N/A')}, Bedrooms: {listing.get('num_bedrooms', 'N/A')}
 - Energy label: {energy_text}
 - Pets allowed: {listing.get('pets_allowed', 'Unknown')}
 - Smoking allowed: {listing.get('smoking_allowed', 'Unknown')}
 - Registration allowed: {listing.get('registration_allowed', 'Unknown')}
 - Age range: {listing.get('min_age', 'N/A')}-{listing.get('max_age', 'N/A')}
-- Suitable for: {listing.get('suitable_for_persons', 'N/A')} person(s)
+- Suitable for: {listing.get('suitable_for_persons', 'N/A')} person(s)  [NOTE: this field is unreliable on Kamernet — see rules below]
 - Available from: {avail_start}
 - Available until: {avail_end}
 - Landlord: {listing.get('landlord_name', 'N/A')} (verified: {listing.get('landlord_verified', False)})
@@ -382,59 +383,107 @@ class KamernetScraper:
 - Landlord response time: {listing.get('landlord_response_time', 'N/A')}
 - Landlord member since: {listing.get('landlord_member_since', 'N/A')}
 - Landlord active listings: {listing.get('landlord_active_listings', 'N/A')}
-- Description: {description}"""
+- Description (first 1500 chars): {description}"""
 
-        return f"""You are a rental listing evaluator for two people (ages 20 and 24) looking for an apartment in Amsterdam.
+        return f"""You are a rental listing evaluator for two people (ages 20 and 24) looking for a long-term home near VU Amsterdam (postal code 1081 BT). Budget: around EUR 2000/month, ideally lower.
 
-## CRITICAL RULE — Suitability for 2 People
-First, determine if this listing can accommodate 2 people. Check:
-- "Suitable for" field (must be >= 2, or N/A/unspecified)
-- Description mentions "couples", "2 persons", "two people", "samen", "stel", or similar
-- Number of rooms/bedrooms (a small studio for 1 person = likely unsuitable)
-- Type of listing (Room = almost always 1 person only)
-If the listing is CLEARLY only for 1 person (e.g. suitable_for_persons = 1, or it's a single room in shared house), give a total score of 0-10 maximum regardless of other qualities. Explain why in the reasoning.
+## How to read the data
+You MUST consider ALL of the structured fields below — listingType, num_bedrooms, num_rooms, surfaceArea, postalCode, city, street, landlord stats — not only the description. Kamernet fields are sometimes ambiguous; cross-check structured fields against the description before drawing conclusions. Examples:
+- `suitable_for_persons` is frequently set to 1 by default even on full apartments. Do NOT trust it on its own — verify with listingType, surface_area, num_bedrooms, and the description.
+- `num_rooms`/`num_bedrooms` are often null for type=1 (Room) listings; absence doesn't mean a small place.
 
-## Scoring Rubric (total: 100 points) — only apply full rubric for listings suitable for 2 people
+## STEP 1 — Determine the unit type (this drives everything)
 
-### Price Value (0-30 points)
-- Budget is around EUR 2000/month. Lower is better.
-- EUR 1500 or below = 30pts, EUR 1500-1800 = 25pts, EUR 1800-2000 = 20pts, EUR 2000-2200 = 12pts, above EUR 2200 = 5pts
-- Utilities included is a bonus (+3pts)
-- Reasonable deposit is a minor bonus
+Use `listingType` first, then sanity-check with description and surface area:
 
-### Location — Proximity to Amsterdam Zuid / VU Amsterdam (0-25 points)
-- Amsterdam Zuid, Buitenveldert, Zuidas, postal codes 1081-1082 = 25pts
-- De Pijp, Rivierenbuurt, Amstelveen, postal codes 1071-1079 = 20pts
-- Amsterdam Oud-Zuid, Oud-West, Centrum = 15pts
-- Other Amsterdam neighborhoods = 10pts
-- Outside Amsterdam = 5pts
-- Use postal code, street name, and city to determine approximate location
+**Self-contained units (Apartment / Studio) — listingType = 2, 3, or 4**
+- These are entire homes with their own kitchen, bathroom, entrance. They are fit for a couple by default.
+- IGNORE `suitable_for_persons` for these. A 40m² apartment marked "1 person" is still fine for 2 people; rate it normally.
+- Only penalize for capacity if surface_area is genuinely tiny (under ~20m²) AND the description literally says "single bed only" / "for one person only" / "geen plek voor twee".
 
-### Property Quality (0-20 points)
-- Size: >=60m2 = 15pts, 40-60m2 = 10pts, <40m2 = 5pts
-- Rooms: 2+ bedrooms = 5pts, 1 bedroom = 3pts, studio = 1pt
+**Rooms in shared houses — listingType = 1**
+- These are usually a single bedroom with shared kitchen/bathroom, occupied by one person. Default assumption: only 1 person can move in, so this is unsuitable for the user → score 5-15.
+- BUT first check the description for these signals that overturn the default:
+  - Dutch: "geen huisgenoten", "zelfstandig", "eigen keuken", "eigen badkamer", "hele woning", "geheel appartement", "geen medebewoners", "voor stel", "voor 2 personen", "samen", "geschikt voor 2"
+  - English: "no housemates", "no roommates", "entire apartment", "whole apartment", "self-contained", "own kitchen", "own bathroom", "for couple", "for two", "two people", "couple"
+  - If ANY of these appear, treat the listing as self-contained and apply the full rubric (it likely got mis-categorized as type=1).
+- Signals that confirm it IS a shared room (keep score low):
+  - "shared kitchen", "shared bathroom", "gedeelde keuken", "gedeelde badkamer", "delen we", "huisgenoten", "housemates", "X bedroom apartment with X people", "for girl/woman/man only", "single room", "kamer in huis"
 
-### Landlord Reliability (0-15 points)
-- Verified landlord = 5pts
-- Response rate >80% = 5pts, 50-80% = 3pts, <50% = 1pt
-- Few active listings (1-3) = 5pts, many (10+) = 1pt
+## STEP 2 — Score using the rubric (max 100)
 
-### Lease Terms (0-10 points)
-- Long-term (>12 months or indefinite) = 10pts
-- 6-12 months = 5pts
-- <6 months = 2pts
-- Pets allowed = bonus +2pts (nice to have, not essential)
-- Registration allowed = bonus +2pts (cap total category at 10)
+### Price Value (0-30)
+Budget ~EUR 2000/month. Lower is better.
+- ≤ 1400: 30pts | 1400-1700: 28pts | 1700-1900: 24pts | 1900-2100: 20pts | 2100-2300: 12pts | > 2300: 5pts
+- Utilities included: +3 bonus (cap category at 30)
+- For listingType=1 (true shared room) the price brackets shift: ≤700: 30pts | 700-900: 22pts | 900-1100: 14pts | >1100: 6pts
 
-## User Context
-Two people (ages 20 and 24) looking for a long-term apartment near VU Amsterdam / Amsterdam Zuid. Budget around EUR 2000. Pets nice-to-have but not required. Registration is a plus.
+### Location — proximity to VU Amsterdam / Zuid (0-25)
+Use postal code + city + street. Concrete reference (transit time to VU by bike/public transport):
+
+**Excellent (22-25 pts) — walking/short bike to VU:**
+- Amsterdam postal 1081, 1082, 1083 (Buitenveldert, Zuidas, VU campus, De Aker)
+- Amsterdam postal 1071-1079 (Oud-Zuid, De Pijp, Rivierenbuurt, Stadionbuurt, Apollobuurt)
+- Amstelveen 1181-1185 (Stadshart, Bovenkerk) — Tram 25 (Amstelveenlijn) goes directly to VU station
+
+**Very good (18-22 pts) — 15-25 min door-to-door:**
+- Amsterdam 1075-1077 (Oud-Zuid west, Hoofddorppleinbuurt) — bike 10-15 min
+- Amsterdam 1054-1058 (Oud-West, Helmersbuurt) — tram 2 / bike 15-20 min
+- Amstelveen 1186-1188 (Westwijk, Amstelveen Zuid) — bus / tram 25
+- Duivendrecht 1115 — NS Duivendrecht + metro 51/53/54, ~15-20 min total. GOOD CHOICE.
+- Ouderkerk aan de Amstel 1191 — bus 175 or 15 min bike along Amstel. GOOD CHOICE.
+- Diemen 1111-1112 (Diemen Centrum) — metro 53, ~20 min
+
+**Good (14-18 pts) — 20-30 min:**
+- Amsterdam 1011-1018 (Centrum/Grachtengordel) — metro 52 to Zuid
+- Amsterdam 1064-1067 (Slotervaart, Geuzenveld) — bus / tram
+- Amsterdam 1098-1099 (Watergraafsmeer) — metro 53
+- Amsterdam 1102-1108 (Bijlmer/Zuidoost) — metro 50
+- Diemen Zuid 1112-1114 — metro 53
+- Hoofddorp 2131-2134 — train direct to Amsterdam Zuid (~12 min on train but add walking)
+
+**OK (8-13 pts) — 30-45 min:**
+- Amsterdam 1019-1024 (Eastern Docklands, IJburg) — tram/metro
+- Amsterdam Noord 1031-1035 — ferry + metro/bus
+- Almere 1315-1318 — train direct to Zuid (~25 min)
+- Badhoevedorp, Hoofddorp outer
+
+**Poor (3-7 pts) — > 45 min or awkward transit:**
+- Haarlem (any postal) — train + transfer
+- Zaandam, Purmerend, Edam, Weesp
+- Almere Buiten/Poort
+
+If you don't recognize the postal code, lean on the city name and street + Dutch geographic knowledge. Don't blanket-penalize "outside Amsterdam" — Amstelveen, Duivendrecht, Diemen, and Ouderkerk are essentially Amsterdam suburbs with great VU connections.
+
+### Property Quality (0-20)
+- Surface area: ≥70m²: 12pts | 50-70m²: 10pts | 35-50m²: 7pts | 25-35m²: 4pts | <25m²: 1pt
+- Bedrooms: 2+ bedrooms: 4pts | 1 bedroom: 3pts | studio (0 bedrooms): 2pts
+- Energy label A/B: +2pts | C/D: +1pt | E/F/G: 0
+- Furnishing: Furnished: +2pts | Semi-furnished: +1pt
+
+### "No Roommates" Bonus (0-15) — important for the user
+The user STRONGLY prefers a place with no roommates / huisgenoten. Award:
+- 15pts: clearly self-contained (apartment/studio with own kitchen + own bathroom, or type=1 with explicit "no housemates" / "entire apartment" language)
+- 10pts: self-contained but description hints at shared building amenities only
+- 0-3pts: room in a shared house (any housemates, "shared kitchen/bathroom", "X-bedroom apartment with current housemates")
+
+### Landlord Reliability (0-10)
+- Verified landlord: +3pts
+- Response rate ≥80%: +3pts | 50-80%: +2pts | <50% or null: 0pts
+- Active listings 1-3: +2pts | 4-9: +1pt | 10+: 0pts
+- Member for ≥1 year: +2pts
+
+## STEP 3 — Final notes
+- Cap final score at 100, floor at 0.
+- Reasoning must be 1-2 sentences and reference SPECIFIC fields you used (e.g. "78m² apartment in 1081, no housemates per description, EUR 1750 — strong all around").
+- Do NOT just cite `suitable_for_persons` as the reason for a low score. If you penalize for capacity, name the specific evidence (surface area, listingType, description text).
 
 ## Listing Data
 {listing_data}
 
 ## Response
 Respond with ONLY valid JSON, no markdown code fences, no extra text:
-{{"score": <integer 0-100>, "reasoning": "<1-2 sentences: key positives and negatives>"}}"""
+{{"score": <integer 0-100>, "reasoning": "<1-2 sentences referencing specific fields>"}}"""
 
     def _call_openrouter(self, prompt: str, model: str) -> Optional[Dict]:
         """Make a single OpenRouter API call. Returns parsed response or None."""
@@ -448,8 +497,8 @@ Respond with ONLY valid JSON, no markdown code fences, no extra text:
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.3,
+                    "max_tokens": 400,
+                    "temperature": 0.2,
                 },
                 timeout=30,
             )
