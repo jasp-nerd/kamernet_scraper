@@ -358,7 +358,7 @@ class KamernetScraper:
 
         avail_start = listing.get('availabilityStartDate') or listing.get('availability_start') or 'Unknown'
         avail_end = listing.get('availabilityEndDate') or listing.get('availability_end') or 'Indefinite'
-        description = (listing.get('detailed_description') or '')[:1500]
+        description = listing.get('detailed_description') or ''
 
         listing_data = f"""- Title: {listing.get('detailed_title', 'N/A')}
 - Price: EUR {listing.get('totalRentalPrice', 'N/A')}/month
@@ -378,19 +378,15 @@ class KamernetScraper:
 - Suitable for: {listing.get('suitable_for_persons', 'N/A')} person(s)  [NOTE: this field is unreliable on Kamernet — see rules below]
 - Available from: {avail_start}
 - Available until: {avail_end}
-- Landlord: {listing.get('landlord_name', 'N/A')} (verified: {listing.get('landlord_verified', False)})
-- Landlord response rate: {listing.get('landlord_response_rate', 'N/A')}%
-- Landlord response time: {listing.get('landlord_response_time', 'N/A')}
-- Landlord member since: {listing.get('landlord_member_since', 'N/A')}
-- Landlord active listings: {listing.get('landlord_active_listings', 'N/A')}
-- Description (first 1500 chars): {description}"""
+- Description: {description}"""
 
         return f"""You are a rental listing evaluator for two people (ages 20 and 24) looking for a long-term home near VU Amsterdam (postal code 1081 BT). Budget: around EUR 2000/month, ideally lower.
 
 ## How to read the data
-You MUST consider ALL of the structured fields below — listingType, num_bedrooms, num_rooms, surfaceArea, postalCode, city, street, landlord stats — not only the description. Kamernet fields are sometimes ambiguous; cross-check structured fields against the description before drawing conclusions. Examples:
+You MUST consider ALL of the structured fields below — listingType, num_bedrooms, num_rooms, surfaceArea, postalCode, city, street — not only the description. Kamernet fields are sometimes ambiguous; cross-check structured fields against the description before drawing conclusions. Examples:
 - `suitable_for_persons` is frequently set to 1 by default even on full apartments. Do NOT trust it on its own — verify with listingType, surface_area, num_bedrooms, and the description.
 - `num_rooms`/`num_bedrooms` are often null for type=1 (Room) listings; absence doesn't mean a small place.
+- ALWAYS check availability dates and description for temporary/short-term indicators — these are deal-breakers.
 
 ## STEP 1 — Determine the unit type (this drives everything)
 
@@ -402,13 +398,16 @@ Use `listingType` first, then sanity-check with description and surface area:
 - Only penalize for capacity if surface_area is genuinely tiny (under ~20m²) AND the description literally says "single bed only" / "for one person only" / "geen plek voor twee".
 
 **Rooms in shared houses — listingType = 1**
-- These are usually a single bedroom with shared kitchen/bathroom, occupied by one person. Default assumption: only 1 person can move in, so this is unsuitable for the user → score 5-15.
-- BUT first check the description for these signals that overturn the default:
-  - Dutch: "geen huisgenoten", "zelfstandig", "eigen keuken", "eigen badkamer", "hele woning", "geheel appartement", "geen medebewoners", "voor stel", "voor 2 personen", "samen", "geschikt voor 2"
-  - English: "no housemates", "no roommates", "entire apartment", "whole apartment", "self-contained", "own kitchen", "own bathroom", "for couple", "for two", "two people", "couple"
-  - If ANY of these appear, treat the listing as self-contained and apply the full rubric (it likely got mis-categorized as type=1).
-- Signals that confirm it IS a shared room (keep score low):
-  - "shared kitchen", "shared bathroom", "gedeelde keuken", "gedeelde badkamer", "delen we", "huisgenoten", "housemates", "X bedroom apartment with X people", "for girl/woman/man only", "single room", "kamer in huis"
+- These are rooms in a shared house with other tenants/roommates. Default assumption: unsuitable → score 0-10.
+- The user requires a fully self-contained unit with NO other people living in the same space. Even if a room has its own bathroom, if there are housemates or shared common areas, it is unsuitable.
+- ONLY override the low score if the description makes ABSOLUTELY CLEAR that:
+  1. There are NO other tenants/housemates in the unit (not just "own entrance" — the entire dwelling must be theirs alone)
+  2. It has its own kitchen/cooking area, own bathroom with shower, and own living space
+  - Dutch signals: "geen huisgenoten", "geen medebewoners", "hele woning", "geheel appartement", "zelfstandig", "eigen keuken", "eigen badkamer"
+  - English signals: "no housemates", "no roommates", "entire apartment", "whole apartment", "self-contained", "own kitchen", "own bathroom"
+  - If these appear, treat as self-contained and apply the full rubric.
+- Signals that CONFIRM it is shared (keep score 0-10):
+  - "shared kitchen", "shared bathroom", "gedeelde keuken", "gedeelde badkamer", "delen we", "huisgenoten", "housemates", "X bedroom apartment with X people", "for girl/woman/man only", "single room", "kamer in huis", any mention of other tenants or roommates
 
 ## STEP 2 — Score using the rubric (max 100)
 
@@ -461,22 +460,26 @@ If you don't recognize the postal code, lean on the city name and street + Dutch
 - Energy label A/B: +2pts | C/D: +1pt | E/F/G: 0
 - Furnishing: Furnished: +2pts | Semi-furnished: +1pt
 
-### "No Roommates" Bonus (0-15) — important for the user
-The user STRONGLY prefers a place with no roommates / huisgenoten. Award:
-- 15pts: clearly self-contained (apartment/studio with own kitchen + own bathroom, or type=1 with explicit "no housemates" / "entire apartment" language)
-- 10pts: self-contained but description hints at shared building amenities only
-- 0-3pts: room in a shared house (any housemates, "shared kitchen/bathroom", "X-bedroom apartment with current housemates")
+### Private & Self-Contained (0-15) — CRITICAL for the user
+The user REQUIRES a fully private unit: own kitchen/cooking area, own bathroom with shower, NO roommates or housemates whatsoever. Award:
+- 15pts: clearly self-contained apartment/studio with own kitchen + own bathroom + no shared living with others
+- 10pts: self-contained but description is vague about whether facilities are shared or private
+- 0-3pts: any indication of shared facilities, housemates, roommates, or communal living
 
-### Landlord Reliability (0-10)
-- Verified landlord: +3pts
-- Response rate ≥80%: +3pts | 50-80%: +2pts | <50% or null: 0pts
-- Active listings 1-3: +2pts | 4-9: +1pt | 10+: 0pts
-- Member for ≥1 year: +2pts
+### Long-Term Availability (0-10)
+The user needs a long-term home, NOT a temporary or short-stay rental. Check the title, description, and availability dates.
+- 10pts: indefinite / long-term / permanent / no end date mentioned
+- 5pts: end date > 12 months away or description says "minimaal 1 jaar" / "at least 1 year"
+- 0pts: temporary, short-stay, or anti-squat (anti-kraak). Penalize heavily if ANY of these appear in title or description:
+  - Dutch: "tijdelijk", "korte termijn", "anti-kraak", "anti kraak", "max 6 maanden", "tot en met", "voor de duur van", "tijdelijke huur", "short stay"
+  - English: "temporary", "short-term", "short stay", "anti-squat", "max 6 months", "sublet", "subletting"
+  - If `availabilityEndDate` is set and is less than 12 months from `availabilityStartDate`, score 0-2pts
 
 ## STEP 3 — Final notes
 - Cap final score at 100, floor at 0.
-- Reasoning must be 1-2 sentences and reference SPECIFIC fields you used (e.g. "78m² apartment in 1081, no housemates per description, EUR 1750 — strong all around").
+- Reasoning must be 1-2 sentences and reference SPECIFIC fields you used (e.g. "78m² apartment in 1081, own kitchen+bathroom, long-term, EUR 1750 — strong all around").
 - Do NOT just cite `suitable_for_persons` as the reason for a low score. If you penalize for capacity, name the specific evidence (surface area, listingType, description text).
+- If temporary/short-term or shared living is detected, mention it explicitly in reasoning.
 
 ## Listing Data
 {listing_data}
