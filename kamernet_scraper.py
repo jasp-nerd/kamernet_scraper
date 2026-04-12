@@ -395,6 +395,9 @@ Use `listingType` first, then sanity-check with description and surface area:
 **Self-contained units (Apartment / Studio) — listingType = 2, 3, or 4**
 - These are entire homes with their own kitchen, bathroom, entrance. They are fit for a couple by default.
 - IGNORE `suitable_for_persons` for these. A 40m² apartment marked "1 person" is still fine for 2 people; rate it normally.
+- HOWEVER, if the description explicitly forbids living together as a couple, this is a DEAL-BREAKER → score 5-15 max. Look for:
+  - Dutch: "samenwonen is niet toegestaan", "samenwonen niet toegestaan", "geen samenwonen", "alleen bewoning door 1 persoon", "niet geschikt voor stellen", "geen stellen"
+  - English: "cohabitation not allowed", "no couples", "single occupancy only", "one person only"
 - Only penalize for capacity if surface_area is genuinely tiny (under ~20m²) AND the description literally says "single bed only" / "for one person only" / "geen plek voor twee".
 
 **Rooms in shared houses — listingType = 1**
