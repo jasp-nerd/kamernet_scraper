@@ -82,7 +82,7 @@ class KamernetScraper:
 
         # Telegram notifications
         self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.telegram_score_threshold = int(os.getenv('TELEGRAM_SCORE_THRESHOLD', '50'))
+        self.telegram_score_threshold = int(os.getenv('TELEGRAM_SCORE_THRESHOLD', '80'))
         self.telegram_password = os.getenv('TELEGRAM_PASSWORD', 'snoezepoes@Sofia')
         self.telegram_last_update_id = 0
 

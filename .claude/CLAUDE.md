@@ -33,11 +33,11 @@ Key columns: `listing_id` (PK), street, city, city_slug, street_slug, postal_cod
 
 ## Key Features
 - **AI Scoring**: OpenRouter API scores listings 0-100 via structured rubric. Primary model: `openai/gpt-oss-120b:free`, fallback: `deepseek/deepseek-v3.2`
-- **Telegram**: Password-protected subscriber system. Users send `/start <password>` to subscribe, `/stop` to unsubscribe. Notifications sent for listings scoring >= threshold (default 70)
+- **Telegram**: Password-protected subscriber system. Users send `/start <password>` to subscribe, `/stop` to unsubscribe. Notifications sent for listings scoring >= threshold (default 80)
 - **Discord**: Webhook notifications for all new listings
 
 ## Heroku Env Vars
-`DISCORD_WEBHOOK_URL`, `DATABASE_URL`, `OPENROUTER_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_PASSWORD`, `TELEGRAM_SCORE_THRESHOLD` (default 70), `CHECK_INTERVAL_MIN` (default 50), `CHECK_INTERVAL_MAX` (default 70)
+`DISCORD_WEBHOOK_URL`, `DATABASE_URL`, `OPENROUTER_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_PASSWORD`, `TELEGRAM_SCORE_THRESHOLD` (default 80), `CHECK_INTERVAL_MIN` (default 50), `CHECK_INTERVAL_MAX` (default 70)
 
 ## Kamernet Listing URLs
 ```
@@ -46,7 +46,7 @@ https://kamernet.nl/huren/{city_slug}/{street_slug}/{listing_id}
 
 ## Deployment
 - **Heroku** (scraper): `git push heroku main` from project root
-- **Vercel** (dashboard): auto-deploys from Git, or manually: `cd dashboard && vercel --prod`
+- **Vercel** (dashboard): `cd dashboard && vercel --prod` — Git auto-deploy does NOT work for this project, always deploy manually via CLI
 - **NEVER run `vercel` from the project root** — only from `dashboard/`. The Vercel project is "dashboard", not "kamernet_scraper".
 
 ## Important Notes

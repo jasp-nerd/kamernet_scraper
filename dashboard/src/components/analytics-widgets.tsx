@@ -264,9 +264,8 @@ export function ScoreDistribution({ buckets }: { buckets: ScoreBucket[] }) {
     "rgb(34, 197, 94)", // green
   ];
 
-  // % at or above 60 (telegram threshold-ish)
-  const goodCount =
-    (allBuckets[3]?.count ?? 0) + (allBuckets[4]?.count ?? 0);
+  // % at or above 80 (Telegram notification threshold)
+  const goodCount = allBuckets[4]?.count ?? 0;
   const goodPct = total > 0 ? Math.round((goodCount / total) * 100) : 0;
 
   return (
@@ -334,7 +333,7 @@ export function ScoreDistribution({ buckets }: { buckets: ScoreBucket[] }) {
               </div>
             </div>
             <span className="text-xs text-muted-foreground text-center">
-              scored ≥ 60
+              scored ≥ 80
             </span>
           </div>
         </div>
