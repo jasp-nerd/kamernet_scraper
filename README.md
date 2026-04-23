@@ -18,6 +18,9 @@
 
 Finding a place to rent on [Kamernet.nl](https://kamernet.nl) is brutal. Good listings vanish in minutes. **Kamernet Radar** watches the site for you, scores each new listing against your preferences with a local or free LLM, and pings you the moment something good drops. Choose Discord, Telegram, WhatsApp, ntfy, email, Slack, or any of 100+ other channels.
 
+> _"I set it up in five minutes and had a notification for a good €1450 studio on my phone within an hour. Would recommend."_  
+> — every user, eventually, hopefully
+
 ## What it does
 
 - 🔍 **Polite, robots.txt-compliant scraping.** Public HTML pages only, rate-limited, with a transparent User-Agent.
