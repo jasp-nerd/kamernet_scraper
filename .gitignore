@@ -1,30 +1,49 @@
-# Virtual environment
+# ── Environments ──
 myenv/
 venv/
 env/
+.venv/
+.env
+.env.*
+!.env.example
 
-# Python
+# ── Python ──
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
 
-# Data files
-*.json
+# ── Runtime data & caches ──
 *.csv
 *.log
+seen_listings.json
 
-# OS
+# ── User-local profile overrides ──
+profiles/*.local.yaml
+
+# ── OS ──
 .DS_Store
 Thumbs.db
 
-# IDE
+# ── Editors / agents ──
 .vscode/
 .idea/
+.claude/
+.cursor/
 
-# Dashboard
-dashboard/.env.local
+# ── Dashboard ──
 dashboard/.env
+dashboard/.env.*
+!dashboard/.env.example
 dashboard/.vercel/
 dashboard/node_modules/
-.vercel
-.env*.local
+dashboard/.next/
+dashboard/tsconfig.tsbuildinfo
+
+# ── Legacy Vercel marker at root (no longer used) ──
+.vercel/

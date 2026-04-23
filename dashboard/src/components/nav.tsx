@@ -18,7 +18,7 @@ export function Nav() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-14 items-center gap-8">
           <Link href="/" className="font-semibold text-lg">
-            Kamernet
+            📡 Kamernet Radar
           </Link>
           <div className="flex gap-1">
             {links.map((link) => (

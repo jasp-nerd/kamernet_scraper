@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kamernet Dashboard",
-  description: "Amsterdam rental listings tracker and analytics",
+  title: "Kamernet Radar",
+  description: "Rental listings tracker and analytics for Kamernet.nl",
 };
 
 export default function RootLayout({

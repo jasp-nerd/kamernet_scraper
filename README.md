@@ -1,127 +1,159 @@
-# Kamernet.nl Ethical Scraper
+<div align="center">
 
-An ethical web scraper for Kamernet.nl that monitors new rental listings in Amsterdam and sends Discord notifications when new properties become available.
+# 📡 Kamernet Radar
 
-## Features
+**Real-time Kamernet rental listing scraper with LLM-powered scoring and notifications anywhere.**
 
-- ✅ **Ethical scraping** - Follows robots.txt guidelines
-- 🏠 **Real-time monitoring** - Checks for new listings periodically
-- 📱 **Enhanced Discord notifications** - Beautiful rich embeds with comprehensive listing details
-- 🔍 **Deep listing analysis** - Fetches detailed info from individual pages for new listings only
-- 💾 **Persistent tracking** - Remembers seen listings to avoid duplicates
-- 🔄 **Continuous operation** - Runs indefinitely with configurable intervals
-- 🎯 **Targeted search** - Focuses on Amsterdam rentals with your specific criteria
-- ⏰ **Fresh listing detection** - Shows exact posting time ("33 minuten geleden")
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+[![Docker ready](https://img.shields.io/badge/docker-ready-2496ED.svg)](./Dockerfile)
+[![Apprise-powered](https://img.shields.io/badge/apprise-100%2B_channels-ff6600.svg)](https://github.com/caronc/apprise)
 
-## Robots.txt Compliance
+<sub>Self-hostable. Not affiliated with Kamernet B.V. Educational / personal use.</sub>
 
-This scraper strictly follows the robots.txt guidelines from Kamernet.nl:
-- ✅ Uses allowed public search URLs only
-- ❌ Avoids all disallowed paths (API endpoints, admin areas, etc.)
-- 🕐 Implements respectful rate limiting
-- 🤖 Uses appropriate user agent
+</div>
 
-## Setup
+---
 
-1. **Create virtual environment:**
-   ```bash
-   python3 -m venv myenv
-   source myenv/bin/activate  # On Windows: myenv\Scripts\activate
-   ```
+Finding a place to rent on [Kamernet.nl](https://kamernet.nl) is brutal. Good listings vanish in minutes. **Kamernet Radar** watches the site for you, scores each new listing against your preferences with a local or free LLM, and pings you the moment something good drops. Choose Discord, Telegram, WhatsApp, ntfy, email, Slack, or any of 100+ other channels.
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## What it does
 
-3. **Set up Discord webhook:**
-   - Go to your Discord server settings
-   - Navigate to Integrations > Webhooks
-   - Create a new webhook and copy the URL
-   - Set the environment variable:
-   ```bash
-   export DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/YOUR_WEBHOOK_URL'
-   ```
+- 🔍 **Polite, robots.txt-compliant scraping.** Public HTML pages only, rate-limited, with a transparent User-Agent.
+- 🤖 **LLM scoring 0–100** via [OpenRouter](https://openrouter.ai) (free models work). Rubrics live in editable YAML.
+- 📬 **Notify anywhere.** Native Discord rich embeds, Telegram with a password-gated subscriber flow, or Apprise for 100+ channels.
+- 🎯 **Preset profiles.** `student-amsterdam`, `young-professional-randstad`, `family-utrecht`, `generic`. Copy and tweak.
+- 📊 **Optional Next.js dashboard.** Filter, sort, chart, and drill into listings. Runs locally.
+- 🐳 **Docker-first.** `docker compose up` and you're running.
+- 🗃️ **Postgres-backed.** Full listing history, price snapshots, scrape audit log.
 
-## Usage
+## Quick start
 
-### Run once to test:
+<details open>
+<summary><b>Option A: Docker (recommended)</b></summary>
+
 ```bash
-python3 kamernet_scraper.py
+git clone https://github.com/YOUR_USERNAME/kamernet-radar
+cd kamernet-radar
+cp .env.example .env               # edit at least APPRISE_URLS or DISCORD_WEBHOOK_URL
+docker compose up -d db            # start Postgres
+docker compose run --rm scraper init-db   # one-time schema bootstrap
+docker compose up scraper          # start scraping
 ```
 
-### Run continuously:
-The script will ask if you want to run continuously and what interval to use (default: 15 minutes).
+Want the dashboard too?
 
-### Environment Variables:
-- `DISCORD_WEBHOOK_URL` - Your Discord webhook URL (required)
+```bash
+docker compose --profile dashboard up
+# → http://127.0.0.1:3000
+```
 
-## How it Works
+</details>
 
-1. **Fetches listings** from the Kamernet.nl search page using the provided URL parameters
-2. **Extracts JSON data** embedded in the HTML (no API calls to respect robots.txt)
-3. **Identifies new listings** by comparing listing IDs with previously seen ones
-4. **Sends enhanced Discord notifications** with beautiful rich embeds containing:
-   - 🏠 **Comprehensive property details** (price, size, location, type, furnishing, rooms, deposit)
-   - ⏰ **Real-time posting information** ("33 minuten geleden", "Net geplaatst")
-   - 👤 **Landlord information** (name, verification status, response rate)
-   - 👥 **Tenant requirements** (age range, pet/smoking policies)
-   - 📝 **Property descriptions** (intelligently excerpted from full text)
-   - 📅 **Availability dates and duration**
-   - 🔗 **Direct links to listings with thumbnails**
-   - 🖼️ **High-quality property images**
-   - 🏷️ **Smart badges** (🆕 NEW, ⭐ FEATURED, 🔥 JUST POSTED)
-   - 🎨 **Dynamic colors** based on price, status, and freshness
-   - 📊 **Smart batching** (respects Discord's 10-embed limit)
-   - ⚡ **Rate limiting** between messages
+<details>
+<summary><b>Option B: Terminal only (no Docker)</b></summary>
 
-## Search Parameters
+Requires Python 3.10+ and access to a Postgres instance.
 
-The scraper monitors listings with these criteria:
-- **Location:** Amsterdam + 5km radius
-- **Sort:** Newest first
-- **Price:** No maximum limit
-- **Size:** No minimum size
-- **Type:** All housing types (rooms, studios, apartments)
+```bash
+git clone https://github.com/YOUR_USERNAME/kamernet-radar
+cd kamernet-radar
 
-## File Structure
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-- `kamernet_scraper.py` - Main scraper script
-- `requirements.txt` - Python dependencies
-- `seen_listings.json` - Tracks processed listings (auto-created)
-- `README.md` - This documentation
+cp .env.example .env               # edit DATABASE_URL + one notification channel
+python -m radar init-db            # run schema.sql
+python -m radar run                # scrape forever
+```
 
-## Rate Limiting & Ethics
+One-shot dry-run (skips notifications and DB writes, handy for tuning your profile):
 
-- Respects robots.txt completely
-- Uses reasonable delays between requests
-- Only accesses public search pages
-- Implements proper error handling
-- Uses respectful user agent strings
+```bash
+python -m radar run --once --dry-run --profile student-amsterdam
+```
 
-## Troubleshooting
+</details>
 
-**No listings found:**
-- Check your internet connection
-- Verify the search URL is still valid
-- Check if Kamernet.nl structure has changed
+<details>
+<summary><b>Option C: No notifications, database only</b></summary>
 
-**Discord notifications not working:**
-- Verify your webhook URL is correct
-- Check Discord server permissions
-- Ensure webhook URL environment variable is set
+Leave every notifier env var blank. The scraper writes to Postgres silently. Pair it with the dashboard for a private searchable archive.
 
-**Permission errors:**
-- Make sure you have write permissions in the script directory
-- Check if `seen_listings.json` can be created/modified
+</details>
 
-## Legal & Ethical Notice
+## Configuration
 
-This scraper:
-- ✅ Only accesses publicly available data
-- ✅ Follows robots.txt guidelines strictly
-- ✅ Implements respectful rate limiting
-- ✅ Does not overload the server
-- ✅ Is for personal use only
+Environment variables (or `.env`) control behavior. Full list with comments: **[`.env.example`](./.env.example)**.
 
-Please use responsibly and in accordance with Kamernet.nl's terms of service.
+| Variable                                    | Required | Purpose                                                         |
+| ------------------------------------------- | :------: | --------------------------------------------------------------- |
+| `DATABASE_URL`                              |    ✖️    | Postgres connection. Without it, no persistence.                |
+| `PROFILE`                                   |    ✖️    | Profile name (default: `generic`).                              |
+| `OPENROUTER_API_KEY`                        |    ✖️    | Enables AI scoring. Free tier works fine.                       |
+| `DISCORD_WEBHOOK_URL`                       |    ✖️    | Native Discord rich-embed notifications.                        |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_PASSWORD`  |    ✖️    | Telegram bot with `/start <password>` subscription.             |
+| `APPRISE_URLS`                              |    ✖️    | Any of 100+ channels (Slack, ntfy, WhatsApp, email, Pushover).  |
+| `CHECK_INTERVAL_MIN/MAX`                    |    ✖️    | Seconds between checks (randomized, default 50-70).             |
+
+Configure at least one notification channel, otherwise listings go to the database silently. None are required.
+
+## Scoring profiles
+
+A profile controls two things: what gets scraped (city, radius, price cap) and how the LLM scores listings. Four ship out of the box:
+
+| Profile                        | Who it's for                                                    |
+| ------------------------------ | --------------------------------------------------------------- |
+| `generic`                      | Neutral universal defaults. Start here.                         |
+| `student-amsterdam`            | Two students/young adults near VU Amsterdam, budget ~€2000/mo.  |
+| `young-professional-randstad`  | Solo professional, €1800–2500, Randstad-wide.                   |
+| `family-utrecht`               | Family of 4, Utrecht + suburbs, 2+ bedrooms, long-term only.    |
+
+Writing your own takes two minutes of YAML. See **[`docs/PROFILES.md`](./docs/PROFILES.md)**.
+
+## Notifications
+
+Pick any channel. The scraper fans out to all configured notifiers:
+
+- 🔵 **Discord.** Rich embeds with images, price, availability, AI score. Set `DISCORD_WEBHOOK_URL`.
+- ✈️ **Telegram.** Personal bot with password-gated subscriptions. Users send `/start <password>`. Set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_PASSWORD`.
+- 🌈 **Apprise.** One env var, 100+ channels: Slack, ntfy, email, WhatsApp (via Twilio), Pushover, Matrix, Home Assistant, and more. Set `APPRISE_URLS`.
+
+All three can coexist. A high-scoring listing fans out to each configured channel. Channel recipes live in **[`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md)**.
+
+## Dashboard
+
+The optional Next.js dashboard shows listing history, trends, top-scored picks, and landlord leaderboards. Run it locally with `npm run dev` or `docker compose --profile dashboard up`. See **[`dashboard/README.md`](./dashboard/README.md)**.
+
+<!-- TODO(community): add a screenshot here. See issue #1 for contribution notes. -->
+
+## Deployment
+
+Local use needs nothing beyond the quick-start. To run Radar 24/7 on a tiny VPS (€4/mo is plenty), read **[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)**. It covers `docker compose` on a plain VPS, Coolify, Railway, and fly.io.
+
+## Contributing
+
+Pull requests welcome. Especially valuable:
+
+- 📝 **New preset profiles.** Your city or situation isn't covered? Copy `profiles/generic.yaml` and send a PR.
+- 🌐 **Notification recipes.** Add Apprise recipes for channels we haven't covered.
+- 🧭 **Provider plugins.** Abstract the scraper to target Pararius, Funda, or HousingAnywhere.
+- 🎨 **Dashboard polish.** Map view, websocket live updates, browser extension.
+
+See **[`CONTRIBUTING.md`](./CONTRIBUTING.md)** for dev setup and the roadmap.
+
+## Legal & ethical notice
+
+This project is **not affiliated with Kamernet B.V.** Use it for personal, educational, non-commercial purposes.
+
+- The scraper respects [Kamernet's `robots.txt`](https://kamernet.nl/robots.txt). It hits the public HTML search pages and avoids the disallowed API endpoints (`/SearchRooms/GetRooms`, `/ajax/`, etc.). Pull requests that weaken this get rejected.
+- The scraper rate-limits requests with jittered intervals (default 50–70s).
+- You are responsible for complying with Kamernet's Terms of Service and applicable law (including EU GDPR if you process personal data).
+- Use a transparent User-Agent with a link back to this repo (default template in `.env.example`).
+
+If you're on the Kamernet operations team and this causes trouble, open an issue and let's talk. One HTML fetch per minute per user puts less pressure on your servers than a motivated human refreshing the site.
+
+## License
+
+[MIT](./LICENSE). Do whatever you want, no warranty.
