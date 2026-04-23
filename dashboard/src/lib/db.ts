@@ -1,6 +1,12 @@
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
+
+let sqlInstance: ReturnType<typeof postgres> | null = null;
 
 export function getDb() {
-  const sql = neon(process.env.DATABASE_URL!);
-  return sql;
+  if (!sqlInstance) {
+    sqlInstance = postgres(process.env.DATABASE_URL!, {
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+  return sqlInstance;
 }

@@ -141,8 +141,8 @@ export async function getListings(
   const offsetParam = paramIdx++;
   const listQuery = `SELECT * FROM listings ${whereClause} ORDER BY ${sortCol} ${sortOrder} LIMIT $${limitParam} OFFSET $${offsetParam}`;
 
-  const [countResult] = await sql.query(countQuery, params);
-  const listings = await sql.query(listQuery, [...params, limit, offset]);
+  const [countResult] = await sql.unsafe(countQuery, params);
+  const listings = await sql.unsafe(listQuery, [...params, limit, offset]);
 
   return {
     listings: listings as unknown as Listing[],
