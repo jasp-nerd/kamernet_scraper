@@ -1065,6 +1065,8 @@ Respond with ONLY valid JSON, no markdown code fences, no extra text:
         """Send Discord notification for new listings in batches of 10 embeds."""
         if not new_listings:
             return
+        if not self.discord_webhook_url:
+            return
 
         try:
             sorted_listings = sorted(new_listings, key=lambda x: (
@@ -1246,13 +1248,11 @@ def main():
     - CHECK_INTERVAL_MAX: Optional - Maximum seconds between checks (default: 70)
     """
     # You need to set your Discord webhook URL here
-    discord_webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
-    
+    discord_webhook_url = os.getenv('DISCORD_WEBHOOK_URL') or None
+
     if not discord_webhook_url:
-        print("Please set the DISCORD_WEBHOOK_URL environment variable")
-        print("Example: export DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/YOUR_WEBHOOK_URL'")
-        return
-    
+        print("DISCORD_WEBHOOK_URL not set — Discord notifications disabled (DB writes still happen).")
+
     scraper = KamernetScraper(discord_webhook_url)
     
     # Get randomized check interval from environment variables
