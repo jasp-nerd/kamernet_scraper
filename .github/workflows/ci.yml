@@ -23,11 +23,11 @@ jobs:
       - name: Install deps
         run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
       - name: Ruff lint
-        run: uv run ruff check radar scripts tests
+        run: uv run --no-sync ruff check radar scripts tests
       - name: Ruff format check
-        run: uv run ruff format --check radar scripts tests
+        run: uv run --no-sync ruff format --check radar scripts tests
       - name: Tests
-        run: uv run pytest -q
+        run: uv run --no-sync pytest -q
 
   dashboard:
     runs-on: ubuntu-latest
