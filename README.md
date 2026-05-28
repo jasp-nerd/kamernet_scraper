@@ -37,7 +37,7 @@ Finding a place to rent on [Kamernet.nl](https://kamernet.nl) is brutal. Good li
 <summary><b>Option A: Docker (recommended)</b></summary>
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/kamernet-radar
+git clone https://github.com/jasp-nerd/kamernet-radar
 cd kamernet-radar
 cp .env.example .env               # edit at least APPRISE_URLS or DISCORD_WEBHOOK_URL
 docker compose up -d db            # start Postgres
@@ -60,7 +60,7 @@ docker compose --profile dashboard up
 Requires Python 3.10+ and access to a Postgres instance.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/kamernet-radar
+git clone https://github.com/jasp-nerd/kamernet-radar
 cd kamernet-radar
 
 # One-time: install uv (https://docs.astral.sh/uv/getting-started/installation/)
