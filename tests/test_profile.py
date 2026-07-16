@@ -46,4 +46,4 @@ def test_search_config_defaults():
     sc = SearchConfig.from_dict({})
     assert sc.city_slug == "huurwoningen-amsterdam"
     assert sc.radius_km == 5
-    assert sc.listing_types == [1, 2, 3, 4]
+    assert sc.listing_types == [1, 2, 4, 8, 16]

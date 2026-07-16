@@ -14,7 +14,13 @@ from radar.profile import Profile
 log = logging.getLogger(__name__)
 
 ENERGY_LABELS = {1: "A++", 2: "A+", 3: "A", 4: "B", 5: "C", 6: "D", 7: "E", 8: "F", 9: "G"}
-TYPE_LABELS = {1: "Room (shared house)", 2: "Apartment", 3: "Studio", 4: "Studio"}
+TYPE_LABELS = {
+    1: "Room (shared house)",
+    2: "Apartment",
+    4: "Studio",
+    8: "Anti-squat",
+    16: "Student housing",
+}
 FURNISHING_LABELS = {1: "Unfurnished", 2: "Unfurnished", 3: "Semi-furnished", 4: "Furnished"}
 
 
@@ -33,7 +39,8 @@ def _listing_data_block(listing: dict) -> str:
         f"- City: {listing.get('city', 'N/A')}, Postal code: {listing.get('postal_code', 'N/A')}\n"
         f"- Street: {listing.get('street', 'N/A')} {listing.get('house_number', '')}\n"
         f"- Type: {type_text} (listingType id={listing.get('listingType')}; "
-        "1=Room in shared house, 2=Apartment self-contained, 3/4=Studio self-contained)\n"
+        "1=Room in shared house, 2=Apartment self-contained, 4=Studio self-contained, "
+        "8=Anti-squat, 16=Student housing)\n"
         f"- Furnishing: {furnish_text}\n"
         f"- Rooms: {listing.get('num_rooms', 'N/A')}, Bedrooms: {listing.get('num_bedrooms', 'N/A')}\n"
         f"- Energy label: {energy_text}\n"

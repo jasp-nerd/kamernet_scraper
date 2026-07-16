@@ -20,7 +20,8 @@ class SearchConfig:
     min_size: int = 0
     max_rent: int = 0
     sort: str = "newest"
-    listing_types: list[int] = field(default_factory=lambda: [1, 2, 3, 4])
+    # Kamernet type ids: 1=Room, 2=Apartment, 4=Studio, 8=Anti-squat, 16=Student housing
+    listing_types: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16])
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SearchConfig:
@@ -30,7 +31,7 @@ class SearchConfig:
             min_size=int(data.get("min_size", cls.min_size)),
             max_rent=int(data.get("max_rent", cls.max_rent)),
             sort=str(data.get("sort", cls.sort)),
-            listing_types=list(data.get("listing_types") or [1, 2, 3, 4]),
+            listing_types=list(data.get("listing_types") or [1, 2, 4, 8, 16]),
         )
 
 

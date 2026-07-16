@@ -7,7 +7,7 @@ search:
   max_rent: 2500
   min_size: 25
   sort: newest
-  listing_types: [2, 3, 4]  # Apartments and studios only — no shared rooms
+  listing_types: [2, 4]  # Apartments and studios only — no shared rooms
 
 scoring_prompt: |
   You are a rental listing evaluator for a young professional (25-35) working in the Randstad

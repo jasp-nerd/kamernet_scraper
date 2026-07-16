@@ -38,23 +38,28 @@ search:
   # Examples: huurwoningen-amsterdam, huurwoningen-rotterdam, kamers-utrecht.
   city_slug: huurwoningen-amsterdam
 
-  # Search radius in km around the city.
+  # Search radius in km around the city. Kamernet supports 0, 1, 2, 5, 10 or
+  # 20 km; other values round up to the next supported radius.
   radius_km: 10
 
   # Upper bound on monthly rent (EUR). 0 = no cap.
+  # Radar translates this to Kamernet's internal filter ids and additionally
+  # enforces the exact value client-side, so use real euros here.
   max_rent: 0
 
-  # Minimum surface area in m². 0 = no minimum.
+  # Minimum surface area in m². 0 = no minimum. Real m², same as max_rent.
   min_size: 0
 
   # newest | price_asc | price_desc
   sort: newest
 
   # Types to include.
-  # 1 = Room (in shared house)
-  # 2 = Apartment (self-contained)
-  # 3, 4 = Studio (self-contained)
-  listing_types: [1, 2, 3, 4]
+  # 1  = Room (in shared house)
+  # 2  = Apartment (self-contained)
+  # 4  = Studio (self-contained)
+  # 8  = Anti-squat
+  # 16 = Student housing
+  listing_types: [1, 2, 4, 8, 16]
 
 scoring_prompt: |
   <free-form prompt, one multi-line string>

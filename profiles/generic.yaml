@@ -12,8 +12,9 @@ search:
   min_size: 0
   # newest | price_asc | price_desc
   sort: newest
-  # Listing type filter (1=Room, 2=Apartment, 3/4=Studio). Leave all for any type.
-  listing_types: [1, 2, 3, 4]
+  # Listing type filter (1=Room, 2=Apartment, 4=Studio, 8=Anti-squat, 16=Student housing).
+  # Leave all for any type.
+  listing_types: [1, 2, 4, 8, 16]
 
 scoring_prompt: |
   You are a neutral rental listing evaluator. Score this listing 0-100 on universal criteria:

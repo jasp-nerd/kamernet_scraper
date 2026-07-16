@@ -31,17 +31,59 @@ _SORT_MAP = {
     "price_desc": 3,
 }
 
+# Kamernet's rent/size/radius URL params are indexes into fixed ladders, not
+# real-world values — raw euros/m²/km silently disable or distort the filter
+# (e.g. maxRent=2300 is out of range and dropped; minSize=25 means "90 m²").
+# Ladders ported from the kamernet-mcp project and verified against the live
+# site (July 2026).
+MAX_RENT_LADDER: list[int] = [*range(0, 1600, 100), 1750, *range(2000, 6250, 250)]
+MIN_SIZE_LADDER: list[int] = [0, 6, *range(8, 42, 2), 45, 50, 60, 70, 80, 90, 100]
+RADIUS_KM_TO_ID: dict[int, int] = {0: 1, 1: 2, 2: 3, 5: 4, 10: 5, 20: 6}
+
+
+def _max_rent_param(euros: int) -> int | None:
+    """euros → maxRent ladder index; rounds UP so no affordable listing is excluded.
+
+    Returns None when the budget exceeds the ladder (no server-side filtering).
+    """
+    for index, step in enumerate(MAX_RENT_LADDER):
+        if step >= euros:
+            return index
+    return None
+
+
+def _min_size_param(m2: int) -> int | None:
+    """m² → minSize id (ladder index + 1); rounds DOWN so no matching listing is excluded."""
+    candidates = [i for i, step in enumerate(MIN_SIZE_LADDER) if step <= m2]
+    if not candidates:
+        return None
+    return candidates[-1] + 1
+
+
+def _radius_param(km: int) -> int:
+    """km → radius id; rounds UP to the nearest radius Kamernet supports (max 20 km)."""
+    for supported in sorted(RADIUS_KM_TO_ID):
+        if supported >= km:
+            return RADIUS_KM_TO_ID[supported]
+    return RADIUS_KM_TO_ID[20]
+
 
 def build_search_url(search: SearchConfig) -> str:
-    """Build a Kamernet search URL from profile search config."""
+    """Build a Kamernet search URL from profile search config (real-world units)."""
     params: dict[str, Any] = {
         "pageNo": 1,
-        "radius": search.radius_km,
-        "minSize": search.min_size,
-        "maxRent": search.max_rent,
+        "radius": _radius_param(search.radius_km),
         "searchView": 1,
         "sort": _SORT_MAP.get(search.sort, 1),
     }
+    if search.max_rent > 0:
+        rent_index = _max_rent_param(search.max_rent)
+        if rent_index is not None:
+            params["maxRent"] = rent_index
+    if search.min_size > 0:
+        size_id = _min_size_param(search.min_size)
+        if size_id is not None and size_id > 1:  # id 1 = 0 m² = no filter
+            params["minSize"] = size_id
     return f"{BASE_URL}/huren/{search.city_slug}?{urlencode(params)}"
 
 
@@ -88,13 +130,33 @@ def fetch_listings(search: SearchConfig, session: requests.Session) -> list[dict
     response_block = target.get("findListingsResponse", {})
     listings = response_block.get("listings", []) or []
     top = response_block.get("topAdListings", []) or []
-    result = listings + top
+    result = _apply_profile_filters(listings + top, search)
 
+    log.info("found %d listings", len(result))
+    return result
+
+
+def _apply_profile_filters(listings: list[dict], search: SearchConfig) -> list[dict]:
+    """Enforce the profile's exact criteria client-side.
+
+    The server-side ladder params round inclusively (rent up, size down) and
+    sponsored top ads ignore filters entirely, so listings just outside the
+    profile's bounds can still come back. Items missing a field are kept.
+    """
+    result = listings
     if search.listing_types:
         allowed = set(search.listing_types)
         result = [item for item in result if item.get("listingType") in allowed]
-
-    log.info("found %d listings", len(result))
+    if search.max_rent > 0:
+        result = [
+            item
+            for item in result
+            if not item.get("totalRentalPrice") or item["totalRentalPrice"] <= search.max_rent
+        ]
+    if search.min_size > 0:
+        result = [
+            item for item in result if not item.get("surfaceArea") or item["surfaceArea"] >= search.min_size
+        ]
     return result
 
 

@@ -7,7 +7,7 @@ search:
   max_rent: 2300
   min_size: 0
   sort: newest
-  listing_types: [1, 2, 3, 4]  # Include rooms so the rubric can weed them out with explicit reasoning
+  listing_types: [1, 2, 4, 16]  # Include rooms so the rubric can weed them out with explicit reasoning
 
 scoring_prompt: |
   You are a rental listing evaluator for two people (early 20s, students/young professionals)
