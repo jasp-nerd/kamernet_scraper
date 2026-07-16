@@ -1,0 +1,35 @@
+name: Kamernet changed their site
+description: Scraper logs "no __NEXT_DATA__ in search response", finds zero listings, or fields come back empty
+labels: ["site-change", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks — these reports are the most valuable ones this project gets.
+        The scraper reads Kamernet's embedded page JSON (`__NEXT_DATA__`); when they
+        redesign, field names move and this template helps us fix it fast.
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What broke?
+      description: Paste the relevant scraper log lines (e.g. "no __NEXT_DATA__ in search response") or describe what data is missing/wrong.
+    validations:
+      required: true
+  - type: input
+    id: example
+    attributes:
+      label: An example public URL that fails
+      placeholder: https://kamernet.nl/huren/...
+    validations:
+      required: true
+  - type: input
+    id: since
+    attributes:
+      label: When did it start?
+      placeholder: e.g. worked yesterday, broke around 2026-07-16 14:00 CEST
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: Want to fix it yourself?
+      options:
+        - label: I'd like to submit the fix (see CONTRIBUTING.md)

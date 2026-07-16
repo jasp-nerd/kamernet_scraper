@@ -137,6 +137,10 @@ The optional Next.js dashboard shows listing history, trends, top-scored picks, 
 
 Local use needs nothing beyond the quick-start. To run Radar 24/7 on a tiny VPS (€4/mo is plenty), read **[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)**. It covers `docker compose` on a plain VPS, Coolify, Railway, and fly.io.
 
+## Related projects
+
+- 🤖 **[kamernet-mcp](https://github.com/jasp-nerd/kamernet-mcp)** — MCP server that puts Kamernet search inside Claude, Cursor, Codex, or any AI agent. Radar watches and notifies in the background; kamernet-mcp lets you search, read, and rank listings interactively from a chat. They pair well: get pinged by Radar, then dig into the listing with your agent. Install with `claude mcp add kamernet -- uvx kamernet-mcp`.
+
 ## Contributing
 
 Pull requests welcome. Especially valuable:
